@@ -1,0 +1,104 @@
+# git-intent
+
+Git workflow skills for agents — context-aware actions across the integration lifecycle, not just reading history.
+
+## Project
+
+This repo is a collection of agent skills, not an application. Each skill lives under `skills/<name>/` as a `SKILL.md` file with optional `references/` support material.
+
+[`SPEC.md`](SPEC.md) is the design of record: the eight lifecycle events, the three gate classes, the state model, and the invariants. Read it before changing how skills interact — the individual `SKILL.md` files implement it and shouldn't contradict it.
+
+The split is deliberate. `README.md` is for someone deciding whether to install this and how to use it — payoff, install, skills, arguments, paths. `SPEC.md` is for someone changing how it works — the state taxonomy, the gates, the invariants, the decisions and what would reopen them. Design reasoning that drifts into the README pushes the payoff below the fold; practical usage that drifts into the SPEC makes it a second README. Keep them apart.
+
+| Skill | Purpose |
+|---|---|
+| `baseline-scan` | Compute what the repo is from git into `.git/intent/base.md` — structure, hot/dormant, ownership, coupling |
+| `capture-diff` | Author-side capture into `.branch-notes/<branch>.md` — what changed and why |
+| `collision-scan` | Find in-flight branches working in the same code |
+| `semantic-scan` | Clean merges that broke behavior |
+| `bisect-report` | Bisect a regression and write up the finding |
+| `review-diff` | PR/branch summaries for reviewers — risk-ordered or against a ticket; reports note drift |
+| `resolve-conflicts` | Merge/rebase/cherry-pick/revert conflicts — reconstruct intent, compose, verify |
+| `merge-order` | Optimal merge order for a queue of branches |
+| `onboard-file` | Explain a file's history and blame context |
+| `release-notes` | Changelog and release notes from commit history |
+| `reconcile-notes` | Post-landing: archive landed notes, invalidate the baseline, report what the merge made false |
+
+## Layout
+
+```
+skills/<name>/
+├── SKILL.md              # required
+└── references/           # optional — git commands, scripts, templates
+
+hooks/                    # optional transport: post-checkout, post-merge
+SPEC.md                   # lifecycle, gates, invariants
+AGENTS.example.md         # the block users copy into their own repo
+```
+
+## Conventions
+
+- Skill names: lowercase, hyphens, max 64 chars. **Two words, not one** — every skill in the set is a compound (`capture-diff`, `collision-scan`, `reconcile-notes`). Single generic words like `baseline` or `reconcile` collide in the flat skill namespace, and worse, they collide on *description matching*: "reconcile" is the standard word for Kubernetes controllers, accounting, and data pipelines, so a bare name pulls this skill into conversations that have nothing to do with git.
+- Every `SKILL.md` needs YAML frontmatter with `name` and `description`, and an `## Invocation` block listing its arguments and their defaults.
+- Descriptions are third person, specific, and include trigger terms (when to use the skill).
+- Keep skills concise. The agent already knows git; add only what it wouldn't infer.
+- Optional reference files belong in `references/`, not inline in `SKILL.md`.
+
+## State model
+
+Three kinds, split by who can produce them. Getting this wrong is the most common way a change here goes bad.
+
+| Kind | Location | Rule |
+|---|---|---|
+| Derived | `.git/intent/` (uncommitted) | Regenerable from history alone. Nothing authored ever goes here |
+| Testimony | `.branch-notes/` (committed) | Append-only, dated, branch-local |
+| Policy | `.gitattributes`, `CODEOWNERS` | Skills read it, never write it |
+
+Reasoning about *why* — constraints, deliberate oddities, decisions — belongs in `README.md`, `ARCHITECTURE.md`, or `docs/adr/`. Skills point at those and never restate them.
+
+## Git idioms these skills must use
+
+Most of these were bugs before they were conventions.
+
+- **`git rev-parse --git-common-dir`**, never a literal `.git`. In a linked worktree `.git` is a file, and `--git-dir` is per-worktree while `--git-common-dir` is shared. The cache belongs to the repository, not the checkout.
+- **`git show <ref>:<path>`** to read another branch's note. `.branch-notes/<branch>.md` exists only on that branch — a `cat` returns nothing, silently, and the skill proceeds on inference while believing it read testimony.
+- **Never trust `refs/remotes/origin/HEAD` to exist.** `git clone` writes it; `git remote add` + `fetch` does not, which covers most CI checkouts. Fall back through `main`, `master`, `trunk`, `develop`; report which answered; offer `git remote set-head origin -a`; ask if none exist:
+
+  ```bash
+  TARGET="$1"
+  [ -z "$TARGET" ] && TARGET=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|origin/||')
+  [ -z "$TARGET" ] && for c in main master trunk develop; do
+    git show-ref -q --verify "refs/remotes/origin/$c" && { TARGET=$c; break; }
+  done
+  ```
+
+- **`git check-attr merge -- <path>`** to ask whether a file may be hand-merged, rather than parsing `.gitattributes` by hand.
+- **`ours`/`theirs` are operation-dependent.** During a rebase they're inverted relative to a merge: `ours` is the upstream, `theirs` is your own commit being replayed. Any skill touching conflicts states which operation it's in before naming a side.
+- Prefer `git ls-files` over `find` — it respects `.gitignore` for free.
+- BSD `sed` (macOS) has no `\b`. Use `perl -pe` for word-boundary replacements in tooling, or the substitution silently does nothing.
+
+## Arguments
+
+Every skill has an `## Invocation` block near the top listing what it accepts, and every argument has a derived default. Two exceptions are stated as required: `bisect-report` needs a check command, `onboard-file` needs a path.
+
+The rule is not "derive silently" but **derive, then say what you derived**. A default that's wrong and unreported is worse than a question, because the output looks completely normal. `README.md` has the consolidated table and the six cases where a default can be wrong.
+
+## Commands
+
+No build or test suite. To install a skill for Cursor:
+
+```bash
+ln -s "$(pwd)/skills/<name>" ~/.cursor/skills/<name>
+```
+
+To enable the optional hooks in a repo:
+
+```bash
+git config core.hooksPath hooks
+```
+
+## Editing
+
+When changing a skill, read the existing `SKILL.md` first and match its tone and structure. Update `README.md`, `SPEC.md`, and this file if you add, remove, or rename skills.
+
+Shell in a `SKILL.md` gets run by an agent against a real repo. Test it against this repo before committing it — every command in `baseline-scan` was verified that way, and one of them (the coupling `awk`) was wrong in a way that only showed up when run.

@@ -1,0 +1,34 @@
+#!/usr/bin/env sh
+# git-intent — branch.landed
+#
+# Fires after a merge into the integration branch. Prints a suggestion.
+# Never blocks, never fails, never writes anything.
+#
+# Does not fire on a merge into a feature branch (that is you pulling in
+# upstream, not work landing), and does not fire for pull-request merges
+# performed on the forge — nothing runs locally in that case. Run
+# /reconcile-notes after your next pull instead.
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
+BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|origin/||')
+[ -z "$BASE" ] && exit 0
+[ "$BRANCH" = "$BASE" ] || exit 0
+
+NOTES=$(find .branch-notes -name '*.md' \
+          -not -path '*/_archive/*' -not -name '_*.md' 2>/dev/null | wc -l | tr -d ' ')
+[ "$NOTES" = "0" ] && exit 0
+
+CACHE="$(git rev-parse --git-common-dir)/intent/base.md"
+STALE=""
+[ -f "$CACHE" ] && STALE="  baseline cache may be stale"
+
+cat >&2 <<EOF
+
+  git-intent · branch.landed — $NOTES unarchived note(s) on $BRANCH
+$STALE
+
+    /reconcile-notes          archive what landed, report what the baseline got wrong
+
+EOF
+
+exit 0

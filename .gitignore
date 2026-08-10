@@ -1,0 +1,23 @@
+# Packaged skill bundles (build artifacts)
+*.skill
+dist/
+
+# Local agent state — installs are symlinks, not repo content
+.claude/
+.cursor/
+.codex/
+!AGENTS.md
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# NOTE: .branch-notes/ is deliberately NOT ignored.
+# Branch notes are committed — that is how a reviewer or a conflict
+# resolver reads them. prune-notes handles cleanup after merge.

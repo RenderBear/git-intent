@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+# git-intent — branch.start
+#
+# Fires when a branch is checked out and has no commits of its own yet.
+# Prints a suggestion. Never blocks, never fails, never writes anything.
+
+# $3 is 1 for a branch checkout, 0 for a file checkout. Only the former matters.
+[ "$3" = "1" ] || exit 0
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
+[ "$BRANCH" = "HEAD" ] && exit 0
+
+BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|origin/||')
+[ -z "$BASE" ] && exit 0
+[ "$BRANCH" = "$BASE" ] && exit 0
+
+AHEAD=$(git rev-list --count "origin/$BASE..HEAD" 2>/dev/null) || exit 0
+[ "$AHEAD" = "0" ] || exit 0
+
+cat >&2 <<EOF
+
+  git-intent · branch.start — $BRANCH
+
+    /collision-scan     who else is in this code, while it is still cheap to talk
+
+EOF
+
+exit 0
