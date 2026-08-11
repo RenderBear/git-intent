@@ -1,50 +1,100 @@
 ---
 name: collision-scan
-description: Find out who else is working in the same code before conflicts become expensive — which active branches overlap with yours, what each side is trying to do, and which overlaps are worth a conversation now. Use this when starting a feature, returning to a long-running branch, before a rebase or a large refactor, or whenever the user asks who else is touching a file, whether a change will conflict, or what else is in flight. Also use when a branch has been open more than a week, since divergence compounds quietly.
+description: Find out who else is working in the same code before conflicts become expensive — which parallel agents and which live branches share files and symbols with yours, what each side is trying to do, and which overlaps are worth a conversation now. Use this when starting a feature, returning to a long-running branch, before a rebase or a large refactor, when running several agents in parallel, or whenever the user asks who else is touching a file or what else is in flight. Also use when a branch has been open more than a week, since divergence compounds quietly.
 ---
 
 # collision-scan
 
-A merge conflict is a scheduling failure. The overlap existed the day both branches started; git just doesn't mention it until the cost of fixing it has multiplied. 
+A merge conflict is a scheduling failure. The overlap existed the day both branches started; git just doesn't mention it until the cost of fixing it has multiplied.
 
-The output is not a warning. It's the information needed for a five-minute conversation: what each side is doing, and what has to change if the other one lands first.
+The output is not a warning. It's the information needed for a five-minute conversation — or, when the other side is an agent you started, for a decision you can act on before it has finished writing.
 
-## Scoping, and why it's three stages
+## What this skill is not
 
-The naive version — read every branch, reason about each — is unusable on any repo big enough to need it. A monorepo with three hundred open branches would mean three hundred diffs and three hundred intent reconstructions to surface the two that matter.
+**Overlapping paths only.** This skill compares work that touches the same files and symbols. Two branches changing *related meaning* in files that never touch is `semantic-scan`'s job, and the two divide cleanly on that line:
 
-The stages exist because they cost wildly different amounts:
+| | Looks at | Question |
+|---|---|---|
+| `collision-scan` | paths that **intersect** | will these collide when they land |
+| `semantic-scan` | paths that are **disjoint** | did they break each other without colliding |
+
+So this skill never chases callers, never reasons about contracts, and hands off when it sees one: a branch changing a signature that another branch calls in a file it doesn't touch is a `semantic-scan` finding, and the right output is one line saying so.
+
+## Two populations, scanned in order
+
+Local worktrees and remote branches are different questions with different urgency, and merging them into one severity list loses that.
+
+**Stage 0 — local worktrees.** Agents running *now*, in the next room, with uncommitted work. Actionable in seconds: you can stop one. Costs three commands total and runs first.
+
+**Stages 1–3 — remote branches.** Work that exists but isn't moving this minute. Ranked, capped, reported as a funnel.
+
+Report them as separate sections. "Two agents are in your files right now" and "a branch from last week overlaps" demand different reactions.
+
+## Cost, and where the cap belongs
 
 | Stage | Cost per branch | What it does |
 |---|---|---|
-| 1. Activity | one `for-each-ref`, batched | drop branches nobody has touched |
-| 2. Overlap | two git commands | drop branches that share no file with yours |
+| 0. Worktrees | three commands, total | catch parallel agents, including uncommitted work |
+| 1. Liveness | one `for-each-ref`, batched | rank branches by how alive they are |
+| 2. Overlap | two git commands | drop branches sharing no file with yours |
 | 3. Intent | a diff read plus reasoning | the actual work, and ~100× stage 2 |
 
-So stages 1 and 2 stay uncapped — they're cheap enough to run over everything, and running them over everything is what lets the scan promise it didn't miss anybody. **The cap belongs on stage 3**, and it is ranked by overlap strength, never by recency.
+Stages 0–2 stay uncapped — cheap enough to run over everything, and running them over everything is what lets the scan promise it didn't miss anybody. **The cap belongs on stage 3**, ranked by overlap strength, never by recency.
 
-That ranking is the important part. Recency is a bad proxy for relevance: a branch quiet for nine days that rewrites `dispatch()` matters far more than ten branches that touched the README this morning. A cap on stage 1 would drop the first one silently, which is the exact failure this skill's design refuses.
+That ranking is the important part. Recency is a bad proxy for relevance: a branch quiet for nine days that rewrites `dispatch()` matters far more than ten branches that touched the README this morning. Recency tells you whether the author is *around to talk to* — which matters once you have a finding, and predicts nothing about whether there is one.
 
 Every stage reports its own funnel. A branch dropped without mention is worse than a slow scan.
 
 ## Invocation
 
 ```
-/collision-scan                  # active branches, against the current branch
-/collision-scan --since 30d      # widen the activity window (default 10d)
+/collision-scan                  # worktrees, then live remote branches
+/collision-scan --local          # stage 0 only — parallel agents, nothing remote
+/collision-scan --live 40        # rank remote branches, take top 40 (default 30)
+/collision-scan --live all       # every branch, no liveness cut
 /collision-scan --limit 25       # analyze more overlaps (default 10)
-/collision-scan --count          # just the funnel, nothing expensive
-/collision-scan --all            # ignore the activity window entirely
+/collision-scan --count          # the funnel, nothing expensive
 /collision-scan origin/dev       # against a different target
 ```
 
-`--count` exists for the case where you don't know the shape of the repo yet. It runs stages 1 and 2 and stops, so you see how many branches actually overlap before committing to the expensive part.
+`--count` runs stages 0–2 and stops, so you see how many branches actually overlap before committing to the expensive part. On a large repo it is often all anybody needed.
 
-`--limit` caps stage 3 only. Branches past the cap are **named in the output**, not hidden — the whole point is that you can see what was deferred and re-run with a higher limit if one of the names looks alarming.
-
-The target sets the merge base each branch is measured from. It defaults to the repo's integration branch, resolved as below; pass one explicitly when your branch is aimed at a release branch rather than the trunk.
+`--limit` caps stage 3 only. Branches past the cap are **named in the output**, not hidden.
 
 ## Workflow
+
+### 0. Local worktrees — parallel agents, first and cheapest
+
+```bash
+git worktree list --porcelain
+```
+
+For each worktree other than this one, take its `HEAD` and `branch`, then read what it is actually doing — which for live agent work means the **uncommitted** state, not the branch diff:
+
+```bash
+git -C "$WT" diff --name-only HEAD          # unstaged + working tree
+git -C "$WT" diff --name-only --cached      # staged
+git -C "$WT" diff --name-only "$BASE"       # committed on that branch
+```
+
+The first two are the reason this stage exists. An agent three minutes into a task has written files and committed nothing; no remote scan will ever see that work, and it is the work most cheaply redirected.
+
+Report worktrees separately and first:
+
+```
+PARALLEL AGENTS — 3 other worktrees
+
+  ../wt-payments  refactor/payments-v2   src/client.py
+    12 files, uncommitted. Both touching dispatch().
+    Nothing has been committed — cheapest possible moment to redirect one.
+
+  ../wt-csv       feature/csv-import     src/config.py
+    clean tree, 4 commits ahead. Distant regions.
+
+  ../wt-docs      docs/api-notes         no overlap
+```
+
+An uncommitted overlap has no note to read and no commits to reason from, so intent comes from the diff and gets labelled as inferred. Say so — this is the one population where testimony is structurally unavailable.
 
 ### 1. Establish your own change surface
 
@@ -62,24 +112,30 @@ git diff -U0 $BASE..HEAD | grep '^@@'
 
 The second command is the useful one. Git's hunk headers carry the enclosing function or class name, which gives symbol-level granularity for the price of a diff — no parsing, no language server. That's what separates "same file" from "same function", and the difference between those two is the difference between a note and a phone call.
 
-### 2. Enumerate candidates
+### 2. Rank remote branches by liveness, then cut
 
 ```bash
 git fetch --all --prune
 git for-each-ref --sort=-committerdate refs/remotes/origin \
-  --format='%(refname:short) %(committerdate:relative) %(authorname)'
+  --format='%(refname:short)|%(committerdate:unix)|%(authorname)'
+git rev-list --left-right --count "origin/$TARGET...origin/$branch"
 ```
 
-Default window: branches with commits in the last **10 days**. Adjust with `--since`; `--all` removes the filter.
+A date window alone is the wrong filter — it drops a nine-day-old branch that rewrites your function and keeps a branch that got a README typo fix this morning. Rank instead, on signals that are all one command each:
 
-Ten days is a proxy, not a truth. A refactor parked for two months still lands eventually, and its collision is worse for having aged. So the count of excluded branches stays in the output, and if any excluded branch touches a file you changed, name it as a one-line footnote even though it wasn't scanned.
+- **Recency** of the last commit
+- **Volume** — commits ahead of the target
+- **Divergence** — commits behind, because a branch far behind will conflict with more than its own diff suggests
+- **Not landed** — exclude branches already merged into the target
 
-Exclude the target branch itself, and exclude branches already merged into the target.
+Take the top `--live N`, default 30, or `--live all` to skip the cut.
+
+The cut is a budget, not a claim about relevance — so the count below the cut is reported, and any branch below it that shares a path with you is named as a footnote even though it wasn't ranked in. That footnote is what stops the parked two-month refactor from disappearing.
 
 ### 3. Intersect paths — cheap, before anything expensive
 
 ```bash
-for branch in $CANDIDATES; do
+for branch in $LIVE; do
   THEIR_BASE=$(git merge-base "origin/$branch" "origin/$TARGET")
   git diff --name-only "$THEIR_BASE..origin/$branch"
 done
@@ -92,34 +148,33 @@ Two exclusions from the overlap signal, or every branch matches every branch:
 - Lockfiles, generated directories, and anything `git check-attr merge -- <path>` reports as `-merge`. Everyone touches `package-lock.json`; it predicts nothing.
 - Files with very high change frequency across all branches — a shared constants or barrel file that ten branches append to is noise, and appears as a single grouped line rather than ten findings.
 
+Path intersection is also what `semantic-scan` needs, inverted. The baseline cache at `$(git rev-parse --git-common-dir)/intent/` holds the per-branch path lists so the second skill to run doesn't recompute them.
+
 ### 3b. Report the funnel before spending anything
 
-Stages 1 and 2 are cheap and now complete, so the true scale is known before the expensive part starts. Print it:
+Stages 0–3 are cheap and now complete, so the true scale is known before the expensive part starts. Print it:
 
 ```
+  3 local worktrees                            2 overlap
 312 branches on origin
- 47 with commits in the last 10 days        265 dormant
- 14 share a file with feature/rate-limit     33 no overlap
+ 30 live — ranked by recency, volume, divergence
+ 14 share a file with feature/rate-limit      16 no overlap
   8 of those also share a symbol
 ```
 
-Each line accounts for the one above it, so the two columns always reconcile: 265 + 47 = 312, and 33 + 14 = 47. Numbers that don't add up are how a reader learns not to trust the "no overlap" line.
+Each line accounts for the one above it. Numbers that don't reconcile are how a reader learns not to trust the "no overlap" line.
 
-This is the whole output of `--count`. On a large repo it is often all anybody needed — "fourteen branches touch my files" answers the question that prompted the run.
-
-If the overlap count exceeds `--limit`, say what will be deferred **before** starting rather than after, and if it exceeds roughly 25, say plainly that the full run will be slow and let the user decide whether to narrow the target or raise the limit. A scan that silently takes four minutes gets interrupted; one that says "this will take a few minutes, 31 branches overlap" gets waited for.
+If the overlap count exceeds `--limit`, say what will be deferred **before** starting rather than after. Above roughly 25, say plainly that the run will be slow and let the user narrow the target or raise the limit. A scan that silently takes four minutes gets interrupted; one that says "this will take a few minutes, 31 branches overlap" gets waited for.
 
 ### 4. Reconstruct intent, only for what's left
 
-Rank the overlapping branches before spending anything on them, strongest signal first:
+Rank the overlapping branches, strongest signal first:
 
-1. **Same symbol** — the hunk headers from step 1 intersect. These are the findings that justify the skill.
-2. **Same file, adjacent regions** — within ~50 lines of each other.
+1. **Same symbol** — the hunk headers from step 1 intersect. These justify the skill.
+2. **Same file, adjacent regions** — within ~50 lines.
 3. **Same file, distant regions** — git will merge it; worth a line, not an analysis.
 
-Take `--limit` branches from the top of that ranking. Never order this list by commit date: recency predicts whether someone is *around to talk to*, which matters for the conversation, and predicts nothing at all about whether their change collides with yours.
-
-For each surviving branch:
+Take `--limit` branches from the top. For each:
 
 ```bash
 git show "origin/$branch:.branch-notes/$branch.md" 2>/dev/null
@@ -129,15 +184,14 @@ git diff "$THEIR_BASE..origin/$branch" -- <shared paths>
 
 `git show`, not `cat`. Their note lives on their branch, not in your worktree — a `cat` returns nothing, silently, and the scan proceeds on inference while believing it read testimony.
 
-Read the branch note if it exists — it says what they were trying to do, which is otherwise a reconstruction. Where there's no note, derive from the diff and say so.
-
 The finding you're after is not "both changed `dispatch()`". It's the pair of intentions and how they interact: one wraps it, one relocates it, and the wrap has to move with it.
 
 ### 5. Classify
 
-- **HIGH** — same function or symbol, or one branch changes a signature the other calls. The resolution requires knowing both intents; a textual merge will produce something that compiles and is wrong.
+- **HIGH** — same function or symbol. The resolution requires knowing both intents; a textual merge will produce something that compiles and is wrong.
 - **MEDIUM** — same file, different regions. Git resolves it. Worth knowing, not worth interrupting anyone.
-- **LOW** — same subsystem, no shared file. Mentioned in one line, mostly so nobody is surprised later.
+- **LOW** — same subsystem, no shared file. One line, so nobody is surprised later.
+- **HANDOFF** — one side changes a symbol the other calls from a file neither shares. Not this skill's finding. Name it and point at `semantic-scan`.
 
 Directional consequence matters more than severity. Say what happens *if theirs lands first*, and what happens if yours does — that's what turns the finding into a decision about ordering.
 
@@ -146,10 +200,16 @@ Directional consequence matters more than severity. Say what happens *if theirs 
 ```
 feature/rate-limit vs origin/main
 
+  3 local worktrees                            2 overlap
 312 branches on origin
- 47 with commits in the last 10 days        265 dormant
- 14 share a file with this branch            33 no overlap
- 10 analyzed — symbol overlap first            4 deferred, listed below
+ 30 live — ranked by recency, volume, divergence
+ 14 share a file with this branch              16 no overlap
+ 10 analyzed — symbol overlap first             4 deferred, listed below
+
+PARALLEL AGENTS
+  ../wt-payments  refactor/payments-v2  src/client.py — uncommitted, 12 files
+    Both touching dispatch(). Nothing committed yet on either side.
+    Intent inferred from the working tree; no note exists to read.
 
 HIGH — same function
   refactor/payments-v2 (sam, 2 days ago)
@@ -162,6 +222,11 @@ MEDIUM — same file, different regions
   feature/csv-import (dana, 5 days ago)
     src/config.py — both adding keys, ~40 lines apart.
 
+HANDOFF — no shared file, possible contract break
+  feature/webhooks changes validate_charge()'s error behaviour; this branch
+  adds two callers in importer.py. Different files, so it will merge clean.
+  → /semantic-scan feature/webhooks feature/rate-limit
+
 CLEAN — analyzed, nothing to flag
   8 branches share a file but their changes don't interact.
 
@@ -171,24 +236,26 @@ DEFERRED — overlap, not analyzed (--limit 10 reached; --limit 14 for all)
   spike/cache-poc        src/client.py       same file, no shared symbol
   test/fixtures-refresh  src/config.py       distant regions
 
-DORMANT but touching your files
+BELOW THE LIVENESS CUT but touching your files
   spike/retry-backoff (6 weeks ago) — src/client.py
 ```
 
-Name the author and the recency. The action this produces is a conversation with a person, and a finding that doesn't say who to talk to leaves the reader to go look it up.
+Name the author and the recency. The action this produces is a conversation with a person, and a finding that doesn't say who to talk to leaves the reader to look it up.
 
-The funnel at the top and the DEFERRED block do the same job from opposite ends: together they account for every one of the 312 branches, so the reader can tell the difference between "nothing else overlaps" and "nine other things overlap and I stopped looking".
+The funnel and the DEFERRED block do the same job from opposite ends: together they account for every branch, so the reader can tell "nothing else overlaps" from "nine other things overlap and I stopped looking".
 
 ## Judgment
 
+**Worktrees first, always.** They are the cheapest stage and the most actionable finding, because uncommitted work can be redirected rather than merged. On a machine running parallel agents this is most of the value.
+
+**Rank by overlap, cap by overlap — never by recency.** Recency belongs in the liveness cut, which is a budget, and nowhere else.
+
+**Account for every branch.** The funnel plus the deferred list plus the below-cut footnote should sum to the branch count.
+
 **Don't inflate.** If nothing overlaps, say that in one line. A scan that manufactures MEDIUMs to look useful gets skipped within a fortnight, and then the one real HIGH is skipped too.
 
-**Rank by overlap, cap by overlap — never by recency.** A branch untouched for nine days that rewrites the function you're wrapping outranks ten branches that edited the README this morning. Recency tells you whether the author is around to talk to, which matters once you have a finding and predicts nothing about whether there is one.
+**Hand off rather than half-doing it.** The moment a finding is about a caller in a file neither branch shares, it belongs to `semantic-scan`. Reasoning about contracts here duplicates that skill badly and makes both less trustworthy.
 
-**Account for every branch.** The funnel plus the deferred list should sum to the branch count. Numbers that don't reconcile are how a reader learns not to trust the "no overlap" line.
-
-**This is not a gate.** It surfaces overlap and stops. Who rebases, who waits, whether the refactor lands first — those are calls for the people involved, and a tool that recommends them will be wrong about the politics roughly half the time.
+**This is not a gate.** It surfaces overlap and stops. Who rebases, who waits, whether the refactor lands first — those are calls for the people involved.
 
 **Fork-based workflows are blind spots.** Contributor branches on forks aren't on your remote and won't be scanned. Say so rather than reporting "no overlap", which is a materially different claim from "nothing I can see".
-
-**Run it more than once.** The scan is a snapshot and branches move. The second run, about a week in, catches the branch that started after yours — which is the one most likely to surprise you.

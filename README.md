@@ -1,39 +1,50 @@
 # git-intent: An intent layer for collaborative / multi-agent workflows
 
-git-intent **infers** what it can from what git already holds, **records** the small part that can't be inferred, and **hands both to whoever acts next** - a reviewer checking code against a spec, an agent resolving a conflict, someone opening a file they didn't write.
+git-intent **infers** what it can from what git already holds, **records** the small part that can't be inferred, and **hands both to whoever acts next** — a reviewer checking code against a spec, an agent resolving a conflict, someone opening a file they didn't write.
 
 It's a set of skills, not an application. No service, no daemon, no database. Nothing runs until you ask it to.
 
 Built for Claude Code. Works anywhere that reads the Agent Skills standard — Cursor, Codex, Copilot, Windsurf.
 
+## An example
+
+Two branches. One extracts `dispatch()` into a class and moves retry handling up with it. The other wraps `dispatch()` in a rate limiter, counting every attempt including retries.
+
 ```
-── One branch ───────────────────────────────────────────────────────────
-
-      collision-scan     who else is already working in this code
-      capture-diff       record what the diff is about to modify
-      review-diff        review the diff against a spec
-      resolve-conflicts  compose both sides rather than picking one
-      reconcile-notes    archive what shipped, stale the baseline
-
-      Step 2 runs throughout rather than once: live in the session where
-      the decision happened, or reconstructed from history afterwards.
-
-── Across branches ──────────────────────────────────────────────────────
-
-      merge-order        what has to land before what
-      semantic-scan      the merge that came out clean and broke things
-
-── The repo ─────────────────────────────────────────────────────────────
-
-      baseline-scan      hot spots, ownership, coupling. Derived, never
-                         authored, and read by everything above
-      release-notes      what shipped in a range, and why
-
-── One file, one bug ────────────────────────────────────────────────────
-
-      onboard-file       why is this code shaped like this?
-      bisect-report      what broke, and by what mechanism?
+                                                          src/client.py
+   main ──●──────────────────────────────────────●─────────────────────
+          │                                     ╱ merge: no conflict
+          ├── refactor/payments-v2 ───────●─────┤  both suites green
+          │     retry moves up into       │     │  reviewers see nothing
+          │     PaymentDispatcher.send()  │     │
+          │                               │     │  retries no longer
+          └── feature/rate-limit ─────────●─────┘  pass through dispatch,
+                limiter sits inside                so they bypass the
+                dispatch(), assumes                limiter entirely
+                retries re-enter it
 ```
+
+Git is right. The files barely overlap, the text merges, both test suites pass — neither covers retry-under-limit, because neither branch had a reason to. The break is real and nothing reports it.
+
+Every skill here is a different answer to *when do you find out*:
+
+```
+  day 1              day 3            day 12           day 14         + 3 days
+    │                  │                │                │                │
+    │  both will       │  "the limiter  │  merges        │  retries       │  incident
+    │  touch           │   must wrap    │  clean         │  unmetered     │
+    │  dispatch()      │   retries"     │                │  in prod       │
+    ▼                  ▼                ▼                ▼                ▼
+ collision-scan   capture-diff    resolve-conflicts  semantic-scan     bisect-report
+    ~1 min          ~30 sec          only if git       ~2 min           half a day,
+  before you      the one line       conflicts —      the only thing    after someone
+  start           nothing else       it didn't        that catches      notices
+                  can recover        here             this one
+```
+
+`capture-diff` is the only step that writes anything, and the only one that can't be run later — by day 12 nobody remembers that the limiter was deliberately placed inside `dispatch()` rather than decorating the retry loop, or that the decorator was tried first and double-counted.
+
+Everything else reads what git already has.
 
 ## Install
 
@@ -41,11 +52,7 @@ Built for Claude Code. Works anywhere that reads the Agent Skills standard — C
 npx skills add RenderBear/git-intent
 ```
 
-Opens an interactive picker scoped to this repo's skills — select the ones you want, or pass `--all` to skip the picker and install everything:
-
-```bash
-npx skills add RenderBear/git-intent 
-```
+Opens an interactive picker scoped to this repo's skills — select the ones you want, or pass `--all` to skip the picker and install everything.
 
 This installs to the **current project** by default. Add `-g`/`--global` to install user-wide instead, landing in `~/.claude/skills/` (and detected by other agents if you run them):
 
@@ -86,8 +93,8 @@ They print to stderr and exit 0 — a hook can't run an agent, so these detect t
 | | |
 |---|---|
 | [`baseline-scan`](skills/baseline-scan/SKILL.md) | What the repo is, computed — structure, hot and dormant areas, ownership and bus factor, which files change together. Asks nothing, authors nothing, regenerates in seconds |
-| [`collision-scan`](skills/collision-scan/SKILL.md) | Who else is working in your code and what they're trying to do, while it's still cheap to talk |
-| [`semantic-scan`](skills/semantic-scan/SKILL.md) | Conflicts git never reported: one branch changes a contract, another adds a caller depending on the old one, different files, merges green, fails in production |
+| [`collision-scan`](skills/collision-scan/SKILL.md) | Who else is working in your code and what they're trying to do, while it's still cheap to talk. Local worktrees first, then live remote branches |
+| [`semantic-scan`](skills/semantic-scan/SKILL.md) | Conflicts git never reported: one branch changes a contract, another adds a caller depending on the old one, different files, merges green, fails in production. Ranks a whole repo by exposure before analyzing anything |
 | [`bisect-report`](skills/bisect-report/SKILL.md) | The commit behind a regression, and the mechanism — not just the hash |
 | [`merge-order`](skills/merge-order/SKILL.md) | Which changes have to land before which, so one conflict isn't resolved four times |
 | [`onboard-file`](skills/onboard-file/SKILL.md) | Why a file is shaped like this, what's safe to change, who to ask |
@@ -107,6 +114,8 @@ They print to stderr and exit 0 — a hook can't run an agent, so these detect t
 | [`resolve-conflicts`](skills/resolve-conflicts/SKILL.md) | Reconstructs what each side meant, composes both where compatible, verifies with tests. Handles merge, rebase, cherry-pick, revert, and stash |
 | [`reconcile-notes`](skills/reconcile-notes/SKILL.md) | After landing: archives the notes of branches that shipped, invalidates the baseline cache, reports which of its claims the merge made false |
 
+`collision-scan` and `semantic-scan` look like neighbours and aren't. The first compares work whose paths **intersect** — will these collide when they land. The second compares work whose paths are **disjoint** — did they break each other without colliding. Neither reasons about the other's population, and each hands off by name when it sees one.
+
 ## What each skill takes
 
 Every argument has a derived default, and every skill states which default it used. Deriving silently isn't the goal — a wrong default that goes unreported produces output that looks completely normal, which is worse than having asked.
@@ -114,20 +123,26 @@ Every argument has a derived default, and every skill states which default it us
 | Skill | Default | Accepts |
 |---|---|---|
 | `baseline-scan` | regenerates the cache if stale | `--refresh` · `--print` · `--window 6m` |
-| `collision-scan` | 10-day window, 10 branches analyzed | a target · `--since 30d` · `--limit 25` · `--count` · `--all` |
+| `collision-scan` | worktrees, then 30 live branches, 10 analyzed | a target · `--worktrees` · `--live N\|all` · `--limit N` · `--count` |
 | `capture-diff` | measures against the integration branch | a target branch · `--against <ref>` |
 | `review-diff` | risk-ordered summary vs the integration branch | a target · requirement text |
-| `merge-order` | branches active in the last 10 days | branch names · `--since 30d` · `--target <ref>` |
+| `merge-order` | 30 live branches, ranked as above | branch names · `--live N\|all` · `--target <ref>` |
 | `resolve-conflicts` | every unmerged path | a path · `--other <branch>` |
 | `reconcile-notes` | local ∩ remote, archive only | `--remote` · `--local` · `--delete` · `--dry-run` |
-| `semantic-scan` | the most recent merge commit | a merge sha · two branch names · a range |
+| `semantic-scan` | the most recent merge commit | `--exposure` · a merge sha · one or two branch names |
 | `release-notes` | most recent tag to HEAD | a range · `--audience <role>` |
 | `onboard-file` | asks for a path | a path · `:88` · `:88-104` · a symbol |
 | `bisect-report` | asks for a check command | a check command · `--good` · `--bad` · `--runs N` |
 
-The last two are the only ones that can't start on their own, and asking is the right behaviour rather than a gap. `bisect-report` needs a reproduction because only the person seeing the bug knows what reproduces it, and a bisect against a guessed test spends an hour confidently blaming a random commit. `onboard-file` needs a path because its output is shaped around one file's decisions, and averaging that over a directory produces nothing actionable.
+**Liveness, not recency.** `collision-scan` and `merge-order` both need "which branches count", and a date window is the wrong filter — it drops a nine-day-old branch that rewrites your function and keeps one that got a README typo fix this morning. Both rank instead, on commit recency, commits ahead, divergence behind, and whether the branch has already landed, then take the top `--live N`. The cut is a budget: what falls below it is counted, and anything below it that shares a path with you is named anyway.
 
-A bare positional argument is the target branch everywhere except `merge-order`, where positionals are branch names and the target moves to `--target`. Passing requirement text to `review-diff` switches it from a risk-ordered summary to a clause-by-clause check. `release-notes --audience` takes `integrators`, `on-call`, or `users`, and changes what gets promoted rather than just the tone — a library changelog leads with breaking changes, an internal service's leads with what on-call needs at 3am.
+**`--worktrees` and `--local` are different things** and deliberately not the same word. `collision-scan --worktrees` means parallel agents on this machine, including uncommitted work no remote scan can see. `reconcile-notes --local` means classify notes against local branches only — which is the dangerous mode, since a fresh clone has one local branch and would sweep almost everything.
+
+**`semantic-scan --exposure`** ranks every live branch pair by accumulated risk — divergence, fork-point age, disjoint surface, interface weight, and how long since that pair was last checked — without reading a diff. It's what makes the skill usable on a repo with a six-week feature branch and thirty open PRs: rank in seconds, analyze the top three.
+
+**Two skills can't start on their own**, and asking is right rather than a gap. `bisect-report` needs a reproduction because only the person seeing the bug knows what reproduces it, and a bisect against a guessed test spends an hour confidently blaming a random commit. `onboard-file` needs a path because its output is shaped around one file's decisions, and averaging that over a directory produces nothing actionable.
+
+A bare positional is the target branch everywhere except `merge-order`, where positionals are branch names and the target moves to `--target`. Passing requirement text to `review-diff` switches it from a risk-ordered summary to a clause-by-clause check. `release-notes --audience` takes `integrators`, `on-call`, or `users`, and changes what gets promoted rather than just the tone — a library changelog leads with breaking changes, an internal service's leads with what on-call needs at 3am.
 
 ## Where files live
 
@@ -139,13 +154,21 @@ A bare positional argument is the target branch everywhere except `merge-order`,
 | Merge policy | `.gitattributes` | Yes — you write this, no skill does |
 | Ownership | `CODEOWNERS` | Yes — you write this, no skill does |
 
-Two consequences worth knowing before you run anything. The baseline is keyed off `git rev-parse --git-common-dir`, so **five worktrees on five parallel branches share one cache** rather than computing five. And a branch's note lives only on that branch, which is what keeps notes free of self-conflict — but it also means reading someone else's takes `git show <ref>:<path>`, never `cat`.
+One question sorts every row: **can this be regenerated from the repository tomorrow?** Yes means cache, and the cache is never authoritative — on disagreement the code is right. No means commit it. Already enforced by git means don't duplicate it.
 
-Reasoning about *why* — the constraint, the deliberate oddity, the architectural decision — belongs in `README.md`, `ARCHITECTURE.md`, and `docs/adr/`. Those are reviewed, versioned, and owned. git-intent points at them and never restates them.
+Three consequences worth knowing before you run anything.
+
+The baseline is keyed off `git rev-parse --git-common-dir`, so **five worktrees on five parallel branches share one cache** rather than computing five.
+
+A branch's note lives only on that branch, which is what keeps notes free of self-conflict — but it also means reading someone else's takes `git show <ref>:<path>`, never `cat`. A `cat` returns nothing and doesn't error, so a skill that gets this wrong reconstructs from the diff while reporting that it read testimony.
+
+**An integration branch has no note and never will.** `develop` isn't a unit of work; it's an accumulation of them. When a merge from `develop` conflicts, the incoming side's intent is the `_archive/` entries of the branches that landed since your fork point — usually one or two of fifteen actually touch the conflicted paths, and each was written by whoever made that specific change.
+
+Reasoning about *why* at a scope larger than a branch — the standing constraint, the architectural decision — belongs in `README.md`, `ARCHITECTURE.md`, and `docs/adr/`. Those are reviewed, versioned, and owned. git-intent points at them and never restates them.
 
 ## Design
 
-The reasoning behind all of this - the state model, the lifecycle events, the gate classes, the invariants, and what would reopen each decision -  in [`SPEC.md`](SPEC.md). 
+The reasoning behind all of this — the state model, the lifecycle events, the gate classes, the invariants, and what would reopen each decision — is in [`SPEC.md`](SPEC.md).
 
 ### What gets read
 

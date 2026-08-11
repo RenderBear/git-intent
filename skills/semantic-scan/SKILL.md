@@ -1,32 +1,89 @@
 ---
 name: semantic-scan
-description: Find the conflicts git never reported — one branch changes a function's contract while another adds or modifies a caller depending on the old behavior, in different files, with no conflict markers, merging green and failing later. Use this after a merge that resolved suspiciously cleanly, before a release cut, when tests pass but something feels off after integrating branches, or when the user asks what a merge might have broken silently.
+description: Find the conflicts git never reported — one branch changes a function's contract while another adds or modifies a caller depending on the old behavior, in different files, with no conflict markers, merging green and failing later. Also ranks a whole repo by exposure, so long-lived branches carrying accumulated semantic risk surface before anyone tries to land them. Use this after a merge that resolved suspiciously cleanly, before a release cut, before landing a long-running branch, when tests pass but something feels off after integrating, or when the user asks what a merge might have broken silently.
 ---
 
 # semantic-scan
 
 Git's conflict detection is textual and local. Two branches editing the same lines conflict; two branches editing *related meaning* in different files do not. The second case is more dangerous precisely because nothing stops to tell you.
 
-The shape is always the same: one side changes what a function guarantees, the other side adds or modifies code depending on the old guarantee, the files never touch, the merge is clean, the test suites were written against their own branches and both pass.
+The shape is always the same: one side changes what a function guarantees, the other side adds or modifies code depending on the old guarantee, the files never touch, the merge is clean, both suites were written against their own branches and both pass.
 
-This finds those. It doesn't fix them — the fix is a code change with a decision in it.
+## What this skill is not
+
+**Disjoint paths only.** Where two branches touch the same file, git will conflict or a reviewer will look, and `collision-scan` already covers the case. This skill exists for the inverse:
+
+| | Looks at | Question |
+|---|---|---|
+| `collision-scan` | paths that **intersect** | will these collide when they land |
+| `semantic-scan` | paths that are **disjoint** | did they break each other without colliding |
+
+Two modes, and they answer different questions:
+
+- **Exposure** — rank a whole repo's branch pairs by accumulated semantic risk. Cheap, no reasoning, runs over everything.
+- **Analysis** — trace contracts and dependents for one pair or one merge. Expensive, and worth spending only where exposure says to.
 
 ## Invocation
 
 ```
-/semantic-scan                          # the most recent merge commit
+/semantic-scan --exposure               # rank every live pair; no deep analysis
+/semantic-scan                          # analyze the most recent merge commit
 /semantic-scan 4a1f9c2                  # a specific merge
 /semantic-scan branch-a branch-b        # a pair that hasn't merged yet
-/semantic-scan v2.3.0..HEAD             # every merge in a range, before a release cut
+/semantic-scan feature/billing-v2       # that branch against its integration target
 ```
 
-The two-branch form is the one worth reaching for deliberately: it runs *before* the merge, when the finding is still cheap. The default form runs after, which is when people think to ask.
+The two-branch and single-branch forms run *before* the merge, when the finding is still cheap. The default form runs after, which is when people think to ask.
 
-A range is expensive — it's one scan per merge — so report how many merges it covers before starting, and take them newest first so an interrupted run has still covered the ones most likely to matter.
+Before a release cut, use `--exposure` rather than walking every merge in the range. Scanning thirty merges to find the two that mattered is the cost the exposure ranking exists to avoid.
 
-## Workflow
+## Exposure — risk at scale
 
-### 1. Establish the two sides of the merge
+Analysis costs too much to run over a repo. Exposure is the triage layer that decides where to spend it, and it is the mode that matters in a long-lived-branch workflow: gitflow's six-week `feature/billing-v2` has accumulated semantic risk against `develop` continuously, and nothing has ever looked.
+
+Every input is one git command and none require reading a diff:
+
+```bash
+git rev-list --left-right --count "origin/$A...origin/$B"   # divergence, both directions
+git log -1 --format=%ct $(git merge-base "origin/$A" "origin/$B")   # age of the fork point
+git diff --name-only "$BASE..origin/$A"                     # surface
+git diff -U0 "$BASE..origin/$A" | grep '^@@'                # symbols touched
+```
+
+Score each pair on:
+
+- **Divergence** — commits on each side since the merge base. More change, more chances.
+- **Age** — days since the fork point. Time is what lets contracts drift out from under callers.
+- **Disjoint surface** — files each side touches that the other doesn't. This is the population at risk, and unlike `collision-scan` a *large* disjoint surface raises the score rather than lowering it.
+- **Interface weight** — does either side touch exported symbols, public signatures, schemas, migrations. A branch editing only test fixtures scores near zero however old it is.
+- **Centrality** — how many other files import the touched ones, from the baseline cache at `$(git rev-parse --git-common-dir)/intent/`.
+- **Staleness of the last check** — when this pair was last analyzed, if ever. Never-checked outranks checked-yesterday at equal risk.
+
+The last one is what turns this from a scan into a monitor. Record it back into the cache after each analysis.
+
+```
+EXPOSURE — 12 live branches, 31 pairs sharing an integration target
+
+  87  feature/billing-v2 × develop
+      184/23 commits, forked 61 days ago, 40 disjoint files
+      touches Charge.validate(), 3 migrations — never analyzed
+  61  feature/billing-v2 × feature/tax-rules
+      both change models/charge.py's contract surface, no shared file
+  44  feature/webhooks × develop
+      forked 12 days ago, 9 disjoint files, one exported signature
+  ...
+  <8  22 pairs — short-lived, no interface surface, not listed
+
+Analyzed the top 3. Run /semantic-scan <a> <b> for any other pair.
+```
+
+The scores are ordinal, not physical. They exist to sort, and the report should say what drove each one rather than presenting the number alone — a reader who can't see *why* billing-v2 scored 87 has no way to disagree with it.
+
+Exposure never reports a break. It reports where a break would be expensive and unexamined. Saying "high exposure" where analysis then finds nothing is a correct outcome, not a false positive.
+
+## Analysis
+
+### 1. Establish the two sides
 
 ```bash
 git log --merges -1 --format='%H %P'          # the merge commit and its parents
@@ -35,7 +92,7 @@ git diff --name-only $P1..$MERGE
 git diff --name-only $P2..$MERGE
 ```
 
-For an unmerged pair, use the merge base instead:
+For an unmerged pair, use the merge base:
 
 ```bash
 BASE=$(git merge-base branch-a branch-b)
@@ -43,13 +100,13 @@ git diff --name-only $BASE..branch-a
 git diff --name-only $BASE..branch-b
 ```
 
-The interesting set is where those two file lists **don't** intersect. Overlapping files already conflicted and someone already looked at them.
+Keep the set where those two lists **don't** intersect. Overlapping files already conflicted, or are `collision-scan`'s.
 
 ### 2. Extract contract changes from side A
 
-A contract change is anything that alters what callers can rely on, whether or not the signature moved:
+A contract change is anything altering what callers can rely on, whether or not the signature moved:
 
-- Signature: parameters added, removed, reordered, or retyped; defaults changed
+- Signature: parameters added, removed, reordered, retyped; defaults changed
 - Return: type, shape, nullability, or the meaning of a sentinel value
 - Errors: what's raised, what's swallowed, what's now raised that wasn't
 - Side effects: something that used to write, lock, retry, or cache, and now doesn't — or now does
@@ -60,17 +117,13 @@ The last category is where the real damage lives. A changed signature breaks the
 
 ```bash
 git diff $BASE..branch-a -- <changed files>
-git diff -U0 $BASE..branch-a | grep '^@@'                    # enclosing symbols, cheap
-git show branch-a:.branch-notes/branch-a.md 2>/dev/null      # what it was trying to do
+git diff -U0 $BASE..branch-a | grep '^@@'
+git show branch-a:.branch-notes/branch-a.md 2>/dev/null
 ```
 
-The note lives on the branch it describes, so it is read through the ref. After a merge it has usually been archived, so try `.branch-notes/_archive/branch-a.md` on the integration branch too.
-
-The branch note's "must survive a conflict" line often names the invariant directly, which is faster and more reliable than inferring it.
+The note lives on the branch it describes, so read it through the ref. After landing it moves to `.branch-notes/_archive/<branch>.md` on the integration branch — check there too. Its "must survive a conflict" line often names the invariant directly, which beats inferring it.
 
 ### 3. Find dependents introduced by side B
-
-For each changed contract, look for callers that side B added or modified:
 
 ```bash
 git grep -n 'dispatch(' $P2 -- '*.py'
@@ -79,10 +132,10 @@ git diff $BASE..branch-b -- $(git grep -l 'dispatch(' $P2)
 
 Two categories, and the second is easy to miss:
 
-- **New callers** — side B added code calling the changed symbol. Check against the new contract.
+- **New callers** — side B added code calling the changed symbol.
 - **Modified callers** — side B changed existing call sites in ways that assume the old behavior. These look fine in isolation because they were fine when written.
 
-Indirect dependents count. If side B's new code calls something that calls the changed function, the dependency is real even though it doesn't appear in a grep for the symbol.
+Indirect dependents count. If side B's new code calls something that calls the changed function, the dependency is real even though it won't appear in a grep for the symbol.
 
 ### 4. Report findings with confidence
 
@@ -91,6 +144,7 @@ Every finding needs both sides shown, or it isn't checkable:
 ```
 Scanned merge 4a1f9c2 — refactor/payments-v2 + feature/rate-limit
 14 files from each side, no overlap. 3 contract changes examined.
+Exposure at time of scan: 61.
 
 LIKELY BROKEN
   dispatch() no longer retries internally (client.py:L61, from payments-v2)
@@ -106,24 +160,29 @@ WORTH CHECKING
     (importer.py:L77, L112). May be intentional; may not.
 
 NOT DETERMINABLE
-  Config loading order changed in both branches. Whether the composed order
-  is correct depends on deployment environment behavior that isn't in the
-  repo. Flagging rather than guessing.
+  Config loading order changed on both sides. Whether the composed order is
+  correct depends on deployment behavior that isn't in the repo.
 
 COVERAGE
   Dynamic dispatch not analyzed: 3 call sites go through getattr() in
   handlers.py. Anything reached that way was not checked.
 ```
 
-The last two sections matter as much as the first. A silent false negative is this skill's characteristic failure — the whole premise is that dangerous things leave no trace — so what *wasn't* examined has to be visible. Reflection, dynamic dispatch, string-keyed registries, serialized call graphs, and anything crossing a network boundary are all outside what static reading can see, and a report that doesn't say so implies a completeness it doesn't have.
+The last two sections matter as much as the first. A silent false negative is this skill's characteristic failure — the whole premise is that dangerous things leave no trace — so what *wasn't* examined has to be visible. Reflection, dynamic dispatch, string-keyed registries, serialized call graphs, and anything crossing a network boundary are outside what static reading sees, and a report omitting that implies a completeness it doesn't have.
+
+Write the pair and the timestamp back to the cache so the next exposure run can rank never-checked ahead of just-checked.
 
 ## Judgment
 
+**Exposure sorts; analysis decides.** Never report an exposure score as a finding. "This pair is exposed" and "this pair is broken" are different claims, and conflating them turns the ranking into noise within two runs.
+
 **Show both sides, always.** "This might be broken" without the two specific locations is unactionable, and after two of those the report stops being read.
 
-**Rank by silence, not severity.** A break that fails loudly on the next test run costs an hour. A break that passes both suites and surfaces in production is the reason to run this. Lead with the ones nothing else will catch.
+**Rank by silence, not severity.** A break that fails loudly on the next test run costs an hour. A break that passes both suites and surfaces in production is the reason to run this.
 
 **Deletions are the highest-yield input.** Reviewers skim deletions and git never conflicts a deletion against a distant caller. When one side removed something, check what the other side started depending on.
+
+**Long-lived branches are the target case.** A branch alive for two months has had sixty days for its assumptions to rot. Exposure ranking exists so that branch surfaces before someone tries to land it on a Friday.
 
 **Say when nothing was found.** "Three contract changes, no dependents introduced by the other side" is a real result. Manufacturing findings to justify the run is how the section gets skipped when it eventually matters.
 
