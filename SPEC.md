@@ -7,10 +7,9 @@ someone tried on Tuesday and abandoned on Wednesday, because it was never writte
 git-intent is the layer that closes that gap, and nothing more. It stores the complement of
 what git stores, derives everything else on demand, and hands the result to whoever acts next.
 
-The model is Conductor's. Conductor does not write code; it owns worktree lifecycle and
-delegates the work inside each one to an agent. git-intent owns **intent lifecycle** — when
-intent gets captured, carried, reconciled, and retired — and delegates every act of judgment
-to a skill. The layer is a state machine over git refs. The intelligence is rented.
+The layer owns **intent lifecycle** — when intent gets captured, carried, reconciled, and
+retired — and delegates every act of judgment to a skill. What remains here is a state machine
+over git refs. The intelligence is rented.
 
 ## 1. Non-goals
 
@@ -24,21 +23,28 @@ These are load-bearing. Each one is a thing this could become and must not.
   compete with it.
 - **Not a source editor.** No skill writes to a tracked source file. Ever. Resolutions,
   archives, and prunes are emitted as commands a human runs.
+- **Not an orchestrator.** It does not create branches, manage worktrees, or run agents. It
+  reads what an orchestrator produced and tells whoever acts next what it was for.
 - **Not required.** Every skill runs against a repo that has never heard of this one. The
   layer makes them cheaper and sharper, never possible.
 
 ## 2. State
 
-Three kinds of state, distinguished by who can produce them. The distinction decides where
-each lives, and everything else follows from it.
+One question sorts every artifact: **can this be regenerated from the repository tomorrow?**
 
-| Kind | Example | Producible by | Location |
+| Kind | Example | Regenerable | Location |
 |---|---|---|---|
-| Derived | churn, hotspots, ownership, structure | anyone with the repo | `.git/intent/` — cache |
-| Testimony | the abandoned approach, what must survive | only the author, only now | `.branch-notes/` — committed |
-| Policy | regenerate don't merge; who signs off | a human, deliberately | `.gitattributes`, `CODEOWNERS` |
+| Cache | churn, hotspots, ownership, coupling, path sets | yes, in seconds | `.git/intent/` |
+| Testimony | the abandoned approach, what must survive | no — author only, now only | `.branch-notes/<branch>.md` |
+| Record | testimony for work that has landed | no, and no longer changing | `.branch-notes/_archive/` |
+| Policy | regenerate don't merge; who signs off | n/a — git enforces it | `.gitattributes`, `CODEOWNERS` |
 
-### 2.1 Derived state is a cache, not a document
+The earlier version of this section sorted by *who could produce* each artifact, which is a
+property of content rather than of storage, and the two come apart — testimony that has landed
+is still author-only but no longer perishable, no longer branch-local, and no longer written by
+anything. Sorting by regenerability puts each artifact in one row and yields its rules.
+
+### 2.1 Cache
 
 `.git/intent/base.md` holds what the repo is, computed from git. It is **not committed**.
 
@@ -75,6 +81,8 @@ The cache holds only what git can answer:
 - hot and dormant regions, from churn over a window
 - ownership and bus factor, from authorship
 - coupling — files that change together — from commit co-occurrence
+- per-branch changed-path sets, so two skills needing the same intersection compute it once
+- pairwise exposure scores and when each pair was last analyzed (§3.7)
 - test, lint, and build commands, read from CI config verbatim
 - pointers to `README.md` / `ARCHITECTURE.md` / `docs/adr/`, never restatements of them
 
@@ -88,7 +96,7 @@ listing says which is which.
 work around — it is the property that makes the scheme free of self-conflict. Two branches never
 contend for the same note file, because each only ever writes its own.
 
-The consequence is a read rule that the current skills get wrong, in three places:
+The consequence is a read rule:
 
 ```bash
 # WRONG — that path does not exist in your worktree
@@ -98,10 +106,57 @@ cat .branch-notes/other-branch.md
 git show origin/other-branch:.branch-notes/other-branch.md 2>/dev/null
 ```
 
-Any skill reading another branch's note reads it through `git show <ref>:<path>`. A silent
-miss here degrades the skill to diff-guessing while it reports having read testimony.
+A silent miss here degrades a skill to diff-guessing while it reports having read testimony.
+The failure produces no error and no empty-string check catches it unless one is written, which
+is why this is invariant **I7** rather than a note in a workflow.
 
-### 2.3 Policy lives where git already reads it
+### 2.3 Integration branches have no note, and never will
+
+`develop`, `main`, and `release/*` are not units of work; they are accumulations of them. There
+is nothing for `capture-diff` to have written and the absence is not a gap.
+
+This is a load-bearing fact rather than an edge case, because the most common conflict in a
+gitflow-shaped repo is a feature branch against `develop`. The incoming side's intent is the
+`_archive/` entries of branches that landed since the fork point:
+
+```bash
+FORK=$(git merge-base HEAD "origin/$OTHER")
+git log --merges --format='%s' "$FORK..origin/$OTHER"
+git show "origin/$OTHER:.branch-notes/_archive/<branch>.md" 2>/dev/null
+```
+
+Usually one or two of fifteen actually touch the conflicted paths, and that subset is *better*
+testimony than a single note would be, because each entry was written by whoever made that
+specific change.
+
+Any skill reading the other side of a merge walks a ladder and reports which rung answered:
+
+| Rung | Source | Claim strength |
+|---|---|---|
+| 1 | the branch's own note, via `git show` | testimony |
+| 2 | `_archive/` entries for what landed in the range | testimony |
+| 3 | commit messages and PR bodies | attributed inference |
+| 4 | the diff alone | reconstruction |
+
+Rungs 3 and 4 are the normal case in most repos and produce perfectly usable output. What
+matters is the label: a composition built on rung 2 and one built on rung 4 deserve different
+trust from whoever applies them, and only the output can distinguish them.
+
+### 2.4 Record — testimony that has landed
+
+When a branch lands, `reconcile-notes` moves its note to `.branch-notes/_archive/<branch>.md`.
+That is a state transition, not filing. Three things change:
+
+- It stops being perishable. The work is done; nothing further will be appended.
+- It stops being branch-local. It now lives on the integration branch and is read by people who
+  never saw the branch.
+- Its retrieval key changes. Nobody remembers `sam/fix-2` in eighteen months, so archived notes
+  are found by the paths and symbols in their frontmatter (§7.1), not by branch name.
+
+Archived notes are the input to `release-notes`, `onboard-file`, and rung 2 above. They are the
+long-lived half of the system and the reason capture is worth doing at all.
+
+### 2.5 Policy lives where git already reads it
 
 Merge policy is `.gitattributes`. Sign-off policy is `CODEOWNERS`. Neither is reinvented here.
 
@@ -148,8 +203,25 @@ that forced all eleven into the table would be describing a system nobody built.
 ### 3.1 `branch.start`
 
 A new branch off the integration branch. `collision-scan` reports overlapping in-flight work
-while it is still cheap to talk. Read-only, no gate. Refresh the derived cache here if stale —
-it is the cheapest moment, and everything downstream reads it.
+while it is still cheap to talk. Read-only, no gate. Refresh the cache here if stale — it is the
+cheapest moment, and everything downstream reads it.
+
+Two populations, scanned in order, because they carry different urgency:
+
+```bash
+git worktree list --porcelain          # parallel agents on this machine
+git -C "$WT" diff --name-only HEAD     # including uncommitted work
+```
+
+Local worktrees come first. An agent three minutes into a task has written files and committed
+nothing; no remote scan will ever see that work, and it is the work most cheaply redirected.
+This population has no note by construction — nothing has been committed — so its intent is
+always rung 4 and labelled as such.
+
+Remote branches are ranked by **liveness**, not filtered by date: commit recency, commits ahead,
+divergence behind, and whether the branch has already landed. A date window drops a nine-day-old
+branch that rewrites the function you are wrapping and keeps one that got a README typo fix this
+morning. The liveness cut is a budget, and anything below it that shares a path is named anyway.
 
 ### 3.2 `decision.made` — and how to know it didn't fire
 
@@ -165,8 +237,8 @@ unobservable trigger with no feedback would mean never knowing whether it worked
 requires detecting the **absence** instead, which is entirely mechanical:
 
 ```bash
-test -f ".branch-notes/$BRANCH.md"                  # did capture ever run?
-grep -c '^- 20[0-9][0-9]-' ".branch-notes/$BRANCH.md"   # dated reasoning, or a stub?
+test -f ".branch-notes/$BRANCH.md"                       # did capture ever run?
+grep -c '^- 20[0-9][0-9]-' ".branch-notes/$BRANCH.md"    # dated reasoning, or a stub?
 ```
 
 And for the highest-value case specifically — an approach tried and abandoned — there *is* a
@@ -204,6 +276,13 @@ gets an answer. Nobody remembers in the abstract and everybody remembers when sh
 `review.round` is the deadline. Once the branch lands and `reconcile-notes` archives the note,
 the reasoning is gone for good and no later run recovers it.
 
+**Commit frequency is orthogonal and should not be conflated.** Commits carry what and why for
+one change; notes carry the branch-scope claims and the abandoned paths that no commit can hold.
+Since a note is a tracked file, writing one *is* committing — the guidance is to commit at each
+working state and append at each decision, which fire at different rates. Frequent commits do buy
+the layer one thing: without them, `captured_at` and the branch tip are the same SHA and §3.4's
+drift check silently always passes.
+
 ### 3.3 `branch.ready`
 
 Before the PR. `capture-diff` derives everything derivable and asks the single question no
@@ -214,16 +293,16 @@ history can answer:
 Then `review-diff` produces the risk-ordered summary. One question, once, per branch. Any
 second question is a chance for someone to decide this is not worth the trouble.
 
-### 3.4 `review.round` — the first hole this spec closes
+### 3.4 `review.round`
 
-A note stamped `Last captured at c81f0a2` and three rounds of review later describes code that
-no longer exists. Worse, it is the *merged* note that gets archived, so the version preserved
-forever is the pre-review one.
+A note anchored at `c81f0a2` and three rounds of review later describes code that no longer
+exists. Worse, it is the *merged* note that gets archived, so the version preserved forever is
+the pre-review one.
 
-Detection is mechanical:
+Detection is mechanical, from the frontmatter anchor:
 
 ```bash
-ANCHOR=$(grep -oE '[0-9a-f]{7,40}' .branch-notes/$BRANCH.md | tail -1)
+ANCHOR=$(sed -n 's/^captured_at: *//p' .branch-notes/$BRANCH.md)
 git log --oneline $ANCHOR..HEAD
 ```
 
@@ -234,48 +313,75 @@ re-anchors. If they were review nits, re-anchor alone.
 
 ### 3.5 `conflict.raised`
 
-`git ls-files -u` non-empty, or one of `MERGE_HEAD` / `REBASE_HEAD` / `CHERRY_PICK_HEAD` present.
+**Entry condition, and the only one:** `git ls-files -u` is non-empty.
 
-The skill's first job is to identify **which operation** it is in, because the operand names
-invert. During a rebase, `ours` is the upstream you are replaying onto and `theirs` is your own
-commit — the reverse of a merge. Resolutions that take "ours" out of habit are the single most
-common way a branch's work disappears while the merge looks clean.
+Empty means there is nothing to resolve, and `resolve-conflicts` says so in one line and stops.
+It does not predict conflicts, dry-run merges, or look for future problems — that is
+`collision-scan` before the fact and `semantic-scan` after it. A skill that expands into its
+neighbours' territory makes all three less trustworthy.
+
+Five operations produce unmerged paths, and **the operand names invert between them**. During a
+rebase, `ours` is the upstream you are replaying onto and `theirs` is your own commit — the
+reverse of a merge. Resolving with `--ours` out of merge habit is the single most common way a
+branch's work disappears while the result looks clean.
 
 ```bash
-git rev-parse -q --verify MERGE_HEAD        # merge
-ls .git/rebase-merge .git/rebase-apply      # rebase — ours/theirs INVERTED
-git rev-parse -q --verify CHERRY_PICK_HEAD  # cherry-pick
-git rev-parse -q --verify REVERT_HEAD       # revert
+G=$(git rev-parse --git-dir)                            # never a literal .git
+git rev-parse -q --verify MERGE_HEAD                    # merge
+ls -d "$G/rebase-merge" "$G/rebase-apply" 2>/dev/null   # rebase — ours/theirs INVERTED
+git rev-parse -q --verify CHERRY_PICK_HEAD              # cherry-pick
+git rev-parse -q --verify REVERT_HEAD                   # revert
+                                                        # stash pop: none of the above
 ```
 
+`--git-dir`, not `.git`: in a linked worktree `.git` is a file and every hardcoded path fails,
+which is precisely the multi-agent setup this layer targets.
+
+Cherry-pick, revert, and stash pop yield a commit and no branch name, so the incoming side's
+note cannot be located and intent falls to rung 3 or 4. The output says so.
+
 This is why the skill is `resolve-conflicts` and not `resolve-merge`: the name promised one
-operation and the failure mode lives in the other three.
+operation and the worst failure mode lives in another.
 
 Gate is **propose**, permanently. A plausible wrong resolution passes review, which is precisely
 what makes it expensive. Nothing is written to the tree.
 
-### 3.6 `branch.landed` — the second hole this spec closes
-
-Currently nothing runs on the integration branch. Every skill is branch-scoped and
-human-invoked, so a merge — the moment when what changed is cheapest and most certain to
-determine — is spent on nothing.
+### 3.6 `branch.landed`
 
 `reconcile-notes` runs post-landing and does three things:
 
 1. **Archive the landed note** to `.branch-notes/_archive/<branch>.md`, mirroring the path so
-   slash-named branches stay findable. A merged branch's note is at peak usefulness at exactly
-   the moment it looks like garbage: it now describes code running in production.
+   slash-named branches stay findable. Per §2.4 this is a state transition: the note becomes a
+   record, and it is at peak usefulness at exactly the moment it looks like garbage.
 2. **Delete abandoned notes** — branch gone, commits never landed. Squash merges look
    unmerged, so *unknown resolves to archive*, never to delete. The failure modes are wildly
    asymmetric.
-3. **Invalidate the derived cache** and report which of its claims the landing contradicted.
+3. **Invalidate the cache** and report which of its claims the landing contradicted.
 
-Step 3 is why this replaces `prune-notes` rather than sitting beside it. `prune-notes` already
-fetches, prunes, and classifies what actually landed — it is most of a reconciler already, and
-it is the only skill that naturally runs on the integration branch.
+It must refuse to archive a note whose `captured_at` predates the branch tip, or archive it
+flagged as stale. Otherwise §3.4's drift becomes permanent silently, in the one skill whose
+entire job is not to lose things.
 
-Archived notes are not dead weight. They are the input to `release-notes` (why each change
-happened, not just what landed) and to `onboard-file` (why this file is shaped like this).
+`semantic-scan` also fires here: the merge that just completed cleanly is the population this
+layer exists to check.
+
+### 3.7 Exposure — risk ranking as a standing state
+
+Deep semantic analysis costs too much to run over a repo, so it needs a triage layer, and that
+layer is cheap enough to keep current continuously.
+
+Every input is one git command and none reads a diff: divergence in both directions, fork-point
+age, disjoint surface, interface weight, centrality from the cache, and **staleness of the last
+check**. That last input is what makes this a monitor rather than a scan — never-analyzed
+outranks analyzed-yesterday at equal risk, and `semantic-scan` writes the pair and timestamp
+back to `.git/intent/` after each analysis.
+
+This is the answer for long-lived branches. A six-week feature branch against `develop` has had
+sixty days for its assumptions to rot, nothing has ever looked, and no event fires until someone
+tries to land it on a Friday. Exposure surfaces it before that.
+
+An exposure score is never a finding. "This pair is exposed" and "this pair is broken" are
+different claims, and conflating them turns the ranking into noise within two runs.
 
 ## 4. Gates
 
@@ -297,15 +403,15 @@ An append is a *claim*. A propose is a *change*. Claims are cheap to be wrong ab
 caught by the existing review; changes are not and are not.
 
 Two skills sit outside this, and both say so where they act. `bisect-report` executes, because
-bisecting cannot be done any other way. `reconcile-notes` archives landed notes itself — a `git mv` of
-markdown inside `.branch-notes/`, staged and not committed, with the undo printed. Its exception
-is justified by the shape of the work rather than by convenience: archiving is the ~99% path
-after every landing, and a proposal nobody executes is how the folder rots. Deletion stays behind
-an explicit yes, because that destroys reasoning that exists nowhere else.
+bisecting cannot be done any other way. `reconcile-notes` archives landed notes itself — a
+`git mv` of markdown inside `.branch-notes/`, staged and not committed, with the undo printed.
+Its exception is justified by the shape of the work rather than by convenience: archiving is the
+~99% path after every landing, and a proposal nobody executes is how the folder rots. Deletion
+stays behind an explicit yes, because that destroys reasoning that exists nowhere else.
 
 ## 5. Transports
 
-Events are declarative; how they fire is pluggable. Three transports, none required, all
+Events are declarative; how they fire is pluggable. Four transports, none required, all
 optional, freely mixed. This is the "no separate service" answer in full.
 
 **Human.** Type the slash command. Always works, requires nothing, and is the floor every
@@ -313,6 +419,10 @@ other transport builds on.
 
 **Agent rule.** A block in `CLAUDE.md` / `AGENTS.md` / `.cursorrules`. The only transport that
 can fire `decision.made`, because it is the only one present at the moment a decision happens.
+
+That block is loaded on every turn in the repo, forever, competing with the project's own
+instructions. So it carries trigger conditions and nothing else; format and workflow live in
+the skill, which loads when it fires and costs nothing until then.
 
 **Git hook.** Shipped in [`hooks/`](hooks/). `post-checkout` → `branch.start`, `post-merge` →
 `branch.landed`, enabled with `git config core.hooksPath hooks`.
@@ -334,7 +444,7 @@ the events directly. The contract it needs is small:
 branch.start     { branch, base_ref }
 branch.ready     { branch, base_ref }
 review.round     { branch, anchor_sha }
-conflict.raised  { operation: merge|rebase|cherry-pick|revert, paths[] }
+conflict.raised  { operation: merge|rebase|cherry-pick|revert|stash, paths[] }
 branch.landed    { branch, merge_sha, base_ref }
 ```
 
@@ -348,21 +458,37 @@ Every skill declares what it reads and what it writes. Composability depends on 
 
 | Skill | Reads | Writes | Gate |
 |---|---|---|---|
-| `baseline-scan` *(was capture-base)* | git, CI config, `.gitattributes`, `CODEOWNERS` | `.git/intent/base.md` | auto |
+| `baseline-scan` | git, CI config, `.gitattributes`, `CODEOWNERS` | cache | auto |
 | `capture-diff` | git, cache, own note | `.branch-notes/<branch>.md` | append |
-| `collision-scan` | git, others' notes via `git show` | — | auto |
-| `semantic-scan` | git, call sites | — | auto |
+| `collision-scan` | git, worktrees incl. uncommitted, others' notes via `git show`, cache | cache (path sets) | auto |
+| `semantic-scan` | git, call sites, notes and archive, cache | cache (exposure, last-checked) | auto |
 | `bisect-report` | git, runs the suite | — | *runs* |
 | `review-diff` | git, own note, cache, policy | — | auto |
-| `resolve-conflicts` | git stages, both notes, policy | — | propose |
-| `merge-order` | git, all queued notes via `git show` | — | auto |
+| `resolve-conflicts` | git stages, both sides via the §2.3 ladder, policy | — | propose |
+| `merge-order` | git, queued notes via `git show`, cache | — | auto |
 | `onboard-file` | git, cache, archive | — | auto |
 | `release-notes` | git, archive | — | auto |
-| `reconcile-notes` *(was prune-notes)* | git, notes, cache anchor | archive moves, cache invalidation | archive / confirm |
+| `reconcile-notes` | git, notes, cache anchor | archive moves, cache invalidation | archive / confirm |
 
-Eleven skills, three renamed, one materially widened. `baseline-scan` moves out of the "writes
-durable state" group entirely — after §2.1 it writes only a cache, which puts it with the
-derivers rather than with `capture-diff`.
+Only `capture-diff` writes testimony. Four skills write to the cache, which is not a durable
+write — anything there can be deleted and recomputed.
+
+### 6.1 The two scans do not overlap
+
+`collision-scan` and `semantic-scan` look adjacent and are disjoint by construction:
+
+| | Population | Question |
+|---|---|---|
+| `collision-scan` | paths that **intersect** | will these collide when they land |
+| `semantic-scan` | paths that are **disjoint** | did they break each other without colliding |
+
+Neither reasons about the other's population. `collision-scan` seeing a signature change with a
+caller in an unshared file emits a handoff line naming `semantic-scan` and stops; `semantic-scan`
+never reports "same file, different regions". A large disjoint surface *raises* exposure in the
+second skill and means nothing in the first, which is the clearest evidence they measure
+different things.
+
+Path intersection is computed once into the cache, so whichever runs second does not recompute it.
 
 ## 7. File formats
 
@@ -373,6 +499,20 @@ true on Tuesday, and editing it destroys the record of the reversal, which is of
 valuable thing in the file.
 
 ```markdown
+---
+branch: feature/rate-limit
+requirement: PROJ-412
+captured: 2026-08-06
+captured_at: c81f0a2
+merged:
+paths:
+  - src/client.py
+  - src/config.py
+symbols:
+  - src/client.py:dispatch
+  - src/client.py:_retry_with_backoff
+---
+
 # feature/rate-limit
 
 ## Requirement
@@ -394,16 +534,22 @@ refactor that relocates dispatch, the limiter moves with it.
 
 ## Open
 Exhaustion behavior is unspecified and untested.
-
----
-Last captured at c81f0a2 · 2026-08-06
 ```
 
 Dates under *Why this shape* are required. The reversal on the 6th only means something against
 the attempt on the 4th, and an undated list reads as simultaneous.
 
-`Last captured at` is normative — it is the anchor `review.round` compares against. A note
+`captured_at` is normative — it is the anchor `review.round` compares against, and a note
 without it cannot be checked for drift.
+
+`paths` and `symbols` are the retrieval index and are normative for the same reason. They cost
+nothing, since both are already computed from `git diff --name-only` and the `-U0` hunk headers,
+and they must be written **at capture time**: once a branch is squash-merged and deleted, the
+commits do not survive verbatim and the branch-to-files mapping is unrecoverable. Without them,
+finding an archived note means grepping prose for a filename someone happened to type, and a
+note saying "moved the limiter inside dispatch" is invisible to a search for `src/client.py`.
+
+`merged` is left empty by `capture-diff` and filled by `reconcile-notes` on archive.
 
 ### 7.2 `.git/intent/base.md`
 
@@ -412,8 +558,9 @@ could not be recomputed tomorrow from the same history, it belongs in `ARCHITECT
 
 ### 7.3 `.branch-notes/_archive/<branch>.md`
 
-Identical format, moved by `reconcile-notes`. Path structure mirrored so `feature/rate-limit` archives
-to `_archive/feature/rate-limit.md` rather than colliding with `hotfix/rate-limit`.
+Identical format, moved by `reconcile-notes`, with `merged` filled in. Path structure mirrored
+so `feature/rate-limit` archives to `_archive/feature/rate-limit.md` rather than colliding with
+`hotfix/rate-limit`. Never rewritten after archiving.
 
 ## 8. Invariants
 
@@ -424,10 +571,11 @@ Testable. Each one names a way the layer could rot into something worse than not
 - **I3** Notes are append-only and dated.
 - **I4** Nothing derivable from git is ever asked of a human. This is the adoption constraint,
   and it outranks completeness.
-- **I5** Derived state is never authoritative over code. On disagreement, the code is right and
-  the cache is stale.
+- **I5** Cache is never authoritative over code. On disagreement, the code is right and the
+  cache is stale.
 - **I6** Every skill degrades gracefully to diff-reading on a repo with no notes.
-- **I7** Cross-branch reads go through `git show <ref>:<path>`, never `cat`.
+- **I7** Cross-branch reads go through `git show <ref>:<path>`, never `cat`, and every output
+  states which rung of §2.3 answered.
 - **I8** Policy is read from `.gitattributes` and `CODEOWNERS`, never written to them, and any
   policy that would skip verification or defer to one side is confirmed with a human before it
   is acted on.
@@ -437,19 +585,34 @@ Testable. Each one names a way the layer could rot into something worse than not
 - **I10** No skill assumes `refs/remotes/origin/HEAD` exists. It is written by `git clone` and
   not by `git remote add` + `fetch`, so it is absent in most CI checkouts. Skills fall back
   through the conventional trunk names, report which answered, and ask when none do.
+- **I11** No skill hardcodes `.git`. Paths come from `--git-dir` or `--git-common-dir`, because
+  in a linked worktree `.git` is a file.
+- **I12** Branch relevance is ranked by liveness, never filtered by date alone, and whatever
+  falls below a cut is counted in the output rather than dropped.
+- **I13** A skill that finds itself in the other scan's population (§6.1) hands off by name
+  rather than answering.
 
 ## 9. Decisions taken, and what would reopen them
 
-**The derived cache is uncommitted.** Settled. The reasoning holds only as long as the file stays
-purely derived — the moment anyone wants one hand-written line in it, the argument collapses and
-it should become a committed file with a `-merge` attribute instead. That is the trigger to watch
+**State is sorted by regenerability.** Settled. The earlier producer-based taxonomy could not
+place an archived note, which is author-only but neither perishable nor branch-local. If a
+future artifact is regenerable but expensive enough that recomputation is impractical, that is
+the trigger to add a fifth row rather than to commit the cache.
+
+**The cache is uncommitted.** Settled. The reasoning holds only as long as the file stays purely
+derived — the moment anyone wants one hand-written line in it, the argument collapses and it
+should become a committed file with a `-merge` attribute instead. That is the trigger to watch
 for, and it will present itself as a reasonable small request.
 
-**`reconcile-notes` splits its gate: archive automatically, confirm before deleting.** Settled, on the
-finding in §3.6 — notes are branch-local, so a note reaches the integration branch only by
+**`reconcile-notes` splits its gate: archive automatically, confirm before deleting.** Settled,
+on the finding in §3.6 — notes are branch-local, so a note reaches the integration branch only by
 landing, which makes the abandoned-work pile that the original prune step was built to sweep
 nearly empty by construction. Archiving is the ~99% path and holding it behind a proposal leaves
 a chore after every merge. Deleting is rare and irreversible, so it keeps its gate.
+
+**`resolve-conflicts` is gated on unmerged paths, not on merges.** Settled. It covers five
+operations because the operand inversion in rebase is where the expensive mistake lives, and it
+refuses to run without conflicts because predicting them is two other skills' work.
 
 **`branch.ready` still has no clean detector.** It depends on someone saying so, and it is the
 one genuinely open item. A pull-request-open webhook would detect it precisely, and is exactly
