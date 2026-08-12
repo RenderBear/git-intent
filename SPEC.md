@@ -30,19 +30,29 @@ These are load-bearing. Each one is a thing this could become and must not.
 
 ## 2. State
 
-One question sorts every artifact: **can this be regenerated from the repository tomorrow?**
+One question sorts every artifact: **what does deleting it cost?**
 
-| Kind | Example | Regenerable | Location |
+| Kind | Example | Deleting it costs | Default location |
 |---|---|---|---|
-| Cache | churn, hotspots, ownership, coupling, path sets | yes, in seconds | `.git/intent/` |
-| Testimony | the abandoned approach, what must survive | no — author only, now only | `.branch-notes/<branch>.md` |
-| Record | testimony for work that has landed | no, and no longer changing | `.branch-notes/_archive/` |
-| Policy | regenerate don't merge; who signs off | n/a — git enforces it | `.gitattributes`, `CODEOWNERS` |
+| Cache | churn, hotspots, ownership, coupling, path sets, exposure | time | `.git/intent/` |
+| Testimony | the abandoned approach, what must survive | the reasoning, permanently | `.branch-notes/<branch>.md` |
+| Record | testimony for work that has landed | the same, plus everyone downstream | `.branch-notes/_archive/` |
+| Policy | regenerate don't merge; who signs off | git stops enforcing | `.gitattributes`, `CODEOWNERS` |
 
-The earlier version of this section sorted by *who could produce* each artifact, which is a
-property of content rather than of storage, and the two come apart — testimony that has landed
-is still author-only but no longer perishable, no longer branch-local, and no longer written by
-anything. Sorting by regenerability puts each artifact in one row and yields its rules.
+Two earlier forms of this taxonomy each failed on a specific artifact. Sorting by *who could
+produce* an item could not place an archived note, which is author-only but neither perishable
+nor branch-local. Sorting by *regenerability* could not place §3.7's record of which pairs have
+already been analyzed — that is not recoverable from history, yet losing it costs only a
+redundant re-analysis. Cost of deletion places both, and it is the property the rules actually
+depend on.
+
+**Cost decides the kind. Audience decides the location.** These are separate rules, and
+conflating them is what made "derived" and "lives in `.git/intent/`" look like one fact. Cache
+written for agents belongs in `.git/intent/` because nothing else needs to see it. Cache written
+for a human must be committed, because nobody browses `.git/` in any interface a human uses —
+and it carries `-merge` in `.gitattributes` (§2.5) so it regenerates rather than conflicting.
+The objection to committing derived state was never that it was derived; it was merge churn and
+unearned authority, and `-merge` plus a generated-file header are what answer those.
 
 ### 2.1 Cache
 
@@ -82,7 +92,7 @@ The cache holds only what git can answer:
 - ownership and bus factor, from authorship
 - coupling — files that change together — from commit co-occurrence
 - per-branch changed-path sets, so two skills needing the same intersection compute it once
-- pairwise exposure scores and when each pair was last analyzed (§3.7)
+- pairwise exposure scores, and the tip SHAs at which each pair was last analyzed (§3.7)
 - test, lint, and build commands, read from CI config verbatim
 - pointers to `README.md` / `ARCHITECTURE.md` / `docs/adr/`, never restatements of them
 
@@ -141,6 +151,13 @@ Any skill reading the other side of a merge walks a ladder and reports which run
 Rungs 3 and 4 are the normal case in most repos and produce perfectly usable output. What
 matters is the label: a composition built on rung 2 and one built on rung 4 deserve different
 trust from whoever applies them, and only the output can distinguish them.
+
+The label carries the **reason** the ladder stopped there, not just the number. "Rung 4" alone
+reads as the tool failing. "Rung 4 — cherry-pick, no branch name to look a note up by" and
+"rung 4 — this repo has no archive yet" are different facts, and only the second improves with
+time. A repo adopting this mid-life answers rung 3 or 4 on nearly everything for weeks, which is
+correct, and an unexplained level makes correct output look broken during exactly the window
+where someone is deciding whether to keep using it.
 
 ### 2.4 Record — testimony that has landed
 
@@ -210,13 +227,19 @@ Two populations, scanned in order, because they carry different urgency:
 
 ```bash
 git worktree list --porcelain          # parallel agents on this machine
-git -C "$WT" diff --name-only HEAD     # including uncommitted work
+git -C "$WT" status --porcelain        # modified, staged, and untracked
 ```
 
 Local worktrees come first. An agent three minutes into a task has written files and committed
 nothing; no remote scan will ever see that work, and it is the work most cheaply redirected.
 This population has no note by construction — nothing has been committed — so its intent is
 always rung 4 and labelled as such.
+
+`status --porcelain`, not `diff --name-only HEAD`: a file the agent created and never added is
+**untracked**, and a diff against `HEAD` does not list it. Untracked files are most of what
+three minutes of work looks like, so the diff form misses precisely the population this stage
+exists to find. They are also the only state in the whole model that is not in git at any
+point, which is why this window closes in hours rather than at a merge boundary.
 
 Remote branches are ranked by **liveness**, not filtered by date: commit recency, commits ahead,
 divergence behind, and whether the branch has already landed. A date window drops a nine-day-old
@@ -358,9 +381,13 @@ what makes it expensive. Nothing is written to the tree.
    asymmetric.
 3. **Invalidate the cache** and report which of its claims the landing contradicted.
 
-It must refuse to archive a note whose `captured_at` predates the branch tip, or archive it
-flagged as stale. Otherwise §3.4's drift becomes permanent silently, in the one skill whose
-entire job is not to lose things.
+A note whose `captured_at` predates the branch tip is archived **flagged as stale**, never
+refused. By archive time the branch has landed, so `captured_at` trails the tip whenever any
+commit followed capture — the normal case per §3.4 — and after a squash merge the branch is
+gone and the tip does not resolve at all. Refusing would block the ~99% path that §4 exempts
+from gating precisely so the folder does not rot. The flag is the whole requirement: §3.4's
+drift must not become permanent *silently*, in the one skill whose entire job is not to lose
+things.
 
 `semantic-scan` also fires here: the merge that just completed cleanly is the population this
 layer exists to check.
@@ -373,8 +400,23 @@ layer is cheap enough to keep current continuously.
 Every input is one git command and none reads a diff: divergence in both directions, fork-point
 age, disjoint surface, interface weight, centrality from the cache, and **staleness of the last
 check**. That last input is what makes this a monitor rather than a scan — never-analyzed
-outranks analyzed-yesterday at equal risk, and `semantic-scan` writes the pair and timestamp
-back to `.git/intent/` after each analysis.
+outranks already-analyzed at equal risk.
+
+Staleness is measured against the branches, not against the clock. After each analysis
+`semantic-scan` writes back the pair and the two tip SHAs it examined:
+
+```
+checked: feature/billing-v2@8e8a927 develop@e094dde
+```
+
+A timestamp records *when* a pair was examined but not *what* was examined, so a pair analyzed
+yesterday whose side has since gained ten commits ranks as fresh — under-ranked, in the one
+direction that loses a finding. SHAs make the test mechanical: compare the recorded pair against
+`git rev-parse` on both refs, and unequal means re-analyze.
+
+This entry is the one thing in the cache that history cannot reproduce, and it is why §2 sorts
+on cost of deletion rather than on regenerability. Losing it costs a redundant analysis and
+never a missed one, because absent resolves to never-checked, which ranks highest.
 
 This is the answer for long-lived branches. A six-week feature branch against `develop` has had
 sixty days for its assumptions to rot, nothing has ever looked, and no event fires until someone
@@ -575,7 +617,8 @@ Testable. Each one names a way the layer could rot into something worse than not
   cache is stale.
 - **I6** Every skill degrades gracefully to diff-reading on a repo with no notes.
 - **I7** Cross-branch reads go through `git show <ref>:<path>`, never `cat`, and every output
-  states which rung of §2.3 answered.
+  states which rung of §2.3 answered *and why that was the highest rung available*. A bare level
+  is indistinguishable from a malfunction to anyone adopting the layer mid-life.
 - **I8** Policy is read from `.gitattributes` and `CODEOWNERS`, never written to them, and any
   policy that would skip verification or defer to one side is confirmed with a human before it
   is acted on.
@@ -591,18 +634,35 @@ Testable. Each one names a way the layer could rot into something worse than not
   falls below a cut is counted in the output rather than dropped.
 - **I13** A skill that finds itself in the other scan's population (§6.1) hands off by name
   rather than answering.
+- **I14** Any output resting on the cache states the `Generated at:` SHA it read. I5 says the
+  code wins on disagreement, and that is a rule the reader has to be able to apply — a reader
+  who never opens the code, or who cannot open `.git/intent/` because it is not on any surface
+  a human browses, has no other way to know how old the claim is.
 
 ## 9. Decisions taken, and what would reopen them
 
-**State is sorted by regenerability.** Settled. The earlier producer-based taxonomy could not
-place an archived note, which is author-only but neither perishable nor branch-local. If a
-future artifact is regenerable but expensive enough that recomputation is impractical, that is
-the trigger to add a fifth row rather than to commit the cache.
+**State is sorted by cost of deletion.** Settled, after two earlier forms each failed on a
+specific artifact. The producer-based taxonomy could not place an archived note; the
+regenerability-based one could not place §3.7's record of what has been analyzed, which no clone
+can reproduce yet costs nothing but time to lose. The trigger to add a fifth row is an artifact
+whose loss costs something *other* than time, reasoning, or enforcement.
 
-**The cache is uncommitted.** Settled. The reasoning holds only as long as the file stays purely
-derived — the moment anyone wants one hand-written line in it, the argument collapses and it
-should become a committed file with a `-merge` attribute instead. That is the trigger to watch
-for, and it will present itself as a reasonable small request.
+**`base.md` is uncommitted.** Settled, but on a narrower argument than the one it used to rest
+on. The old trigger was authorship — "the moment anyone wants one hand-written line in it." That
+test is wrong, and §3.7 is the proof: it added machine-written state that no clone can reproduce
+and it passed an authorship check cleanly. The trigger is **audience**. `base.md` stays
+uncommitted for as long as only agents read it; the moment a human is expected to open it, §2's
+location rule says commit it with `-merge`, and the same holds for any index built for human
+retrieval.
+
+**Exposure is a standing predicate, not an event.** Settled that it belongs in the model,
+unsettled in where it sits. §3.7 is a numbered subsection of a section whose first line reads
+"Eight events," and exposure is explicitly not one — it is a predicate over current state that
+any invocation can evaluate, and it exists because the highest-risk case in §3.7's own example
+is one where *no event fires until someone tries to land it on a Friday*. It stays under §3 for
+now because it fires in the same places. The trigger to move it is a second predicate of the
+same shape — unarchived notes for branches that are gone, anchors that have drifted — at which
+point those two are a section of their own and §3 is about events again.
 
 **`reconcile-notes` splits its gate: archive automatically, confirm before deleting.** Settled,
 on the finding in §3.6 — notes are branch-local, so a note reaches the integration branch only by

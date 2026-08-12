@@ -72,12 +72,13 @@ git worktree list --porcelain
 For each worktree other than this one, take its `HEAD` and `branch`, then read what it is actually doing — which for live agent work means the **uncommitted** state, not the branch diff:
 
 ```bash
-git -C "$WT" diff --name-only HEAD          # unstaged + working tree
-git -C "$WT" diff --name-only --cached      # staged
+git -C "$WT" status --porcelain             # modified, staged, and untracked
 git -C "$WT" diff --name-only "$BASE"       # committed on that branch
 ```
 
-The first two are the reason this stage exists. An agent three minutes into a task has written files and committed nothing; no remote scan will ever see that work, and it is the work most cheaply redirected.
+The first is the reason this stage exists. An agent three minutes into a task has written files and committed nothing; no remote scan will ever see that work, and it is the work most cheaply redirected.
+
+`status --porcelain`, not `diff --name-only HEAD` — a file the agent created and never added is **untracked**, and a diff against `HEAD` does not list it. That is most of what three minutes of work looks like, so the diff form misses exactly the population this stage exists to find.
 
 Report worktrees separately and first:
 

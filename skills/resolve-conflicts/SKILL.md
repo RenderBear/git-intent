@@ -157,6 +157,13 @@ skill's value was never conditional on notes existing. What matters is labelling
 built on rung 2 and one built on rung 4 deserve different levels of trust from whoever applies
 them, and only the output can tell them apart.
 
+Give the rung a **reason**, not just a number. "Rung 4" alone reads as the tool failing. "Rung 4
+— cherry-pick, no branch name to look a note up by" and "rung 4 — no archive in this repo yet"
+are different facts, and only the second improves with time. A repo that adopted this mid-life
+answers rung 3 or 4 on nearly everything for weeks, correctly, and an unexplained level makes
+correct output look broken during exactly the window where someone is deciding whether to keep
+using it.
+
 ```
 INTENT
   ours    feature/rate-limit    branch note (rung 1)

@@ -46,13 +46,16 @@ AGENTS.example.md         # the block users copy into their own repo
 
 ## State model
 
-Three kinds, split by who can produce them. Getting this wrong is the most common way a change here goes bad.
+Four kinds, sorted by **what deleting them costs**. Getting this wrong is the most common way a change here goes bad. [`SPEC.md`](SPEC.md) §2 is the full version; this is the working summary.
 
-| Kind | Location | Rule |
-|---|---|---|
-| Derived | `.git/intent/` (uncommitted) | Regenerable from history alone. Nothing authored ever goes here |
-| Testimony | `.branch-notes/` (committed) | Append-only, dated, branch-local |
-| Policy | `.gitattributes`, `CODEOWNERS` | Skills read it, never write it |
+| Kind | Location | Deleting it costs | Rule |
+|---|---|---|---|
+| Cache | `.git/intent/` (uncommitted) | time | Freely rewritten. Never authoritative over code |
+| Testimony | `.branch-notes/<branch>.md` (committed) | the reasoning, permanently | Append-only, dated, branch-local |
+| Record | `.branch-notes/_archive/` (committed) | the same, plus everyone downstream | Frozen on archive, never rewritten |
+| Policy | `.gitattributes`, `CODEOWNERS` | git stops enforcing | Skills read it, never write it |
+
+Two earlier versions of this table sorted by *who could produce* each item and then by *regenerability*. Both are wrong and both are still quotable from old commits — an archived note defeats the first, and the exposure layer's record of what it has already analyzed defeats the second. Cost of deletion is also two rules, not one: **cost decides the kind, audience decides the location.** Cache a human is meant to read gets committed with `-merge`, because nobody browses `.git/`.
 
 Reasoning about *why* — constraints, deliberate oddities, decisions — belongs in `README.md`, `ARCHITECTURE.md`, or `docs/adr/`. Skills point at those and never restate them.
 
@@ -74,6 +77,7 @@ Most of these were bugs before they were conventions.
 
 - **`git check-attr merge -- <path>`** to ask whether a file may be hand-merged, rather than parsing `.gitattributes` by hand.
 - **`ours`/`theirs` are operation-dependent.** During a rebase they're inverted relative to a merge: `ours` is the upstream, `theirs` is your own commit being replayed. Any skill touching conflicts states which operation it's in before naming a side.
+- **`git status --porcelain`, not `git diff --name-only HEAD`**, to see what a worktree is doing right now. A file an agent created and never `git add`ed is untracked, and a diff against `HEAD` does not list it — which is most of what a few minutes of agent work looks like. The diff form silently reports a busy worktree as clean.
 - Prefer `git ls-files` over `find` — it respects `.gitignore` for free.
 - BSD `sed` (macOS) has no `\b`. Use `perl -pe` for word-boundary replacements in tooling, or the substitution silently does nothing.
 

@@ -57,7 +57,7 @@ Score each pair on:
 - **Disjoint surface** — files each side touches that the other doesn't. This is the population at risk, and unlike `collision-scan` a *large* disjoint surface raises the score rather than lowering it.
 - **Interface weight** — does either side touch exported symbols, public signatures, schemas, migrations. A branch editing only test fixtures scores near zero however old it is.
 - **Centrality** — how many other files import the touched ones, from the baseline cache at `$(git rev-parse --git-common-dir)/intent/`.
-- **Staleness of the last check** — when this pair was last analyzed, if ever. Never-checked outranks checked-yesterday at equal risk.
+- **Staleness of the last check** — the tip SHAs at which this pair was last analyzed, if ever. Never-checked outranks checked-at-the-current-tips at equal risk. A pair analyzed yesterday whose side has moved since is stale, and a timestamp cannot tell you that.
 
 The last one is what turns this from a scan into a monitor. Record it back into the cache after each analysis.
 
@@ -170,7 +170,13 @@ COVERAGE
 
 The last two sections matter as much as the first. A silent false negative is this skill's characteristic failure — the whole premise is that dangerous things leave no trace — so what *wasn't* examined has to be visible. Reflection, dynamic dispatch, string-keyed registries, serialized call graphs, and anything crossing a network boundary are outside what static reading sees, and a report omitting that implies a completeness it doesn't have.
 
-Write the pair and the timestamp back to the cache so the next exposure run can rank never-checked ahead of just-checked.
+Write the pair and the two tip SHAs you analyzed back to the cache, so the next exposure run can rank never-checked ahead of checked-at-these-tips:
+
+```
+checked: feature/billing-v2@8e8a927 develop@e094dde
+```
+
+SHAs rather than a timestamp, because the question at ranking time is whether *this* state was examined, not whether some earlier state was. Compare the recorded pair against `git rev-parse` on both refs; unequal means re-analyze.
 
 ## Judgment
 
