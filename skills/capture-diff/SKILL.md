@@ -41,7 +41,7 @@ cat "$(git rev-parse --git-common-dir)/intent/base.md" 2>/dev/null
 cat ".branch-notes/$BRANCH.md" 2>/dev/null
 ```
 
-The baseline is what makes the note a delta — it says which areas are hot, who has been in them, and what changes alongside what. If a constraint is already written down in `ARCHITECTURE.md` or an ADR, reference it rather than restating it. A note that re-explains the architecture on every branch is how this stops being read.
+The baseline is what makes the note a delta — it says which areas are hot, who has been in them, and what changes alongside what. Where a claim in the note rests on it, say which `Generated at:` SHA it came from; the cache is invisible to anyone reading the note later, and a stale claim about what's hot ages into a confident wrong statement. If a constraint is already written down in `ARCHITECTURE.md` or an ADR, reference it rather than restating it. A note that re-explains the architecture on every branch is how this stops being read.
 
 If a note exists, this is an append. Never rewrite existing entries; a decision recorded on Tuesday describes what was true on Tuesday, and quietly editing it destroys the record of the reversal.
 

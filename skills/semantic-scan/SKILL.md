@@ -56,7 +56,7 @@ Score each pair on:
 - **Age** — days since the fork point. Time is what lets contracts drift out from under callers.
 - **Disjoint surface** — files each side touches that the other doesn't. This is the population at risk, and unlike `collision-scan` a *large* disjoint surface raises the score rather than lowering it.
 - **Interface weight** — does either side touch exported symbols, public signatures, schemas, migrations. A branch editing only test fixtures scores near zero however old it is.
-- **Centrality** — how many other files import the touched ones, from the baseline cache at `$(git rev-parse --git-common-dir)/intent/`.
+- **Centrality** — how many other files import the touched ones, from the baseline cache at `$(git rev-parse --git-common-dir)/intent/`. Quote that cache's `Generated at:` SHA in the exposure report: centrality drives the ranking, nobody can inspect a file inside `.git/`, and a score computed from a stale import graph is wrong in a way that reads as authoritative.
 - **Staleness of the last check** — the tip SHAs at which this pair was last analyzed, if ever. Never-checked outranks checked-at-the-current-tips at equal risk. A pair analyzed yesterday whose side has moved since is stale, and a timestamp cannot tell you that.
 
 The last one is what turns this from a scan into a monitor. Record it back into the cache after each analysis.

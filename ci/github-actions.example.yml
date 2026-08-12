@@ -1,0 +1,53 @@
+# git-intent — the mechanical checks, on every pull request.
+#
+# Copy to .github/workflows/intent.yml in the repo you're working in, alongside
+# ci/check-notes.sh. Every provider-specific line is in this file; the checking
+# is in the script, so porting to GitLab CI or Buildkite is a different wrapper
+# around the same command.
+#
+# This is optional. A repo without it loses the checks and keeps every skill.
+
+name: intent
+
+on:
+  pull_request:
+  push:
+    branches: [main, master, develop]
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # assertions and drift both need history
+
+      - name: Check notes touched by this PR
+        if: github.event_name == 'pull_request'
+        run: |
+          NOTES=$(git diff --name-only \
+            "origin/${{ github.base_ref }}...HEAD" \
+            -- '.branch-notes/*.md' ':!.branch-notes/_archive/*')
+          if [ -z "$NOTES" ]; then
+            echo "no branch notes in this PR"
+            exit 0
+          fi
+          sh ci/check-notes.sh $NOTES
+
+      # Convergence (SPEC 4.2) is reported, never applied. Archiving is a
+      # commit to the integration branch, and nothing here has a mandate to
+      # make one — a human runs /reconcile-notes having seen this.
+      - name: Report what convergence would repair
+        if: github.event_name == 'push'
+        run: |
+          git fetch --prune --quiet
+          UNARCHIVED=0
+          for note in $(git ls-files '.branch-notes/*.md' | grep -v '/_archive/'); do
+            branch=$(printf '%s' "$note" | sed 's|^\.branch-notes/||; s|\.md$||')
+            git show-ref -q --verify "refs/remotes/origin/$branch" && continue
+            echo "unarchived: $note (branch gone)"
+            UNARCHIVED=$((UNARCHIVED + 1))
+          done
+          [ "$UNARCHIVED" -gt 0 ] && \
+            echo "$UNARCHIVED note(s) to archive — run /reconcile-notes"
+          exit 0

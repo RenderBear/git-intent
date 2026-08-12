@@ -32,7 +32,8 @@ skills/<name>/
 └── references/           # optional — git commands, scripts, templates
 
 hooks/                    # optional transport: post-checkout, post-merge
-SPEC.md                   # lifecycle, gates, invariants
+ci/                       # optional transport: check-notes.sh + a workflow example
+SPEC.md                   # lifecycle, predicates, gates, invariants
 AGENTS.example.md         # the block users copy into their own repo
 ```
 

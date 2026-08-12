@@ -86,6 +86,8 @@ git config core.hooksPath hooks
 
 They print to stderr and exit 0 — a hook can't run an agent, so these detect the moment and tell you which skill handles it. Read [`hooks/README.md`](hooks/README.md) first: `core.hooksPath` replaces your existing hooks wholesale, and there's a symlink alternative if you already have some.
 
+**Checks on the pull request.** [`ci/`](ci/) ships a POSIX script and a workflow example. Review and merge happen in a browser tab, which is the one place no agent session reaches, so this is the transport that puts findings where the decision is actually made — a note that has gone stale, or a claim its author said had to survive that no longer holds. Only a broken claim fails the build; a renamed function is a question, not a failure, because otherwise the checks get switched off in a week.
+
 ## The skills
 
 **Deriving from git** — no setup, no notes, nothing recorded first.
@@ -180,9 +182,10 @@ Moving merge policy into `.gitattributes` closes most of this: it's a file revie
 
 ```
 git-intent/
-├── SPEC.md                the state model, lifecycle, gates, invariants
+├── SPEC.md                the state model, lifecycle, predicates, gates, invariants
 ├── AGENTS.example.md      copy into your repo to enable live capture
-├── hooks/                 optional git hooks for two of the events
+├── hooks/                 optional git hooks for two of the moments
+├── ci/                    optional pull-request checks — script + workflow example
 ├── CLAUDE.md              for working on git-intent itself
 └── skills/*/SKILL.md      one folder per skill
 ```

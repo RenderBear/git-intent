@@ -149,7 +149,7 @@ Two exclusions from the overlap signal, or every branch matches every branch:
 - Lockfiles, generated directories, and anything `git check-attr merge -- <path>` reports as `-merge`. Everyone touches `package-lock.json`; it predicts nothing.
 - Files with very high change frequency across all branches — a shared constants or barrel file that ten branches append to is noise, and appears as a single grouped line rather than ten findings.
 
-Path intersection is also what `semantic-scan` needs, inverted. The baseline cache at `$(git rev-parse --git-common-dir)/intent/` holds the per-branch path lists so the second skill to run doesn't recompute them.
+Path intersection is also what `semantic-scan` needs, inverted. The baseline cache at `$(git rev-parse --git-common-dir)/intent/` holds the per-branch path lists so the second skill to run doesn't recompute them. Report that cache's `Generated at:` SHA alongside any finding drawn from it — it lives in `.git/`, so nobody reading the output can check its age for themselves.
 
 ### 3b. Report the funnel before spending anything
 

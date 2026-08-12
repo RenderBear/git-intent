@@ -64,6 +64,8 @@ If it doesn't exist, derive intent from commit messages, the ticket if reachable
 
 The baseline tells you what's normal in this repo, so deviations from it are findings rather than noise. It's a regenerable cache — if it's missing or stale, that's a `/baseline-scan` away and not a reason to stop.
 
+**State the cache's `Generated at:` SHA wherever you lean on it.** The rule is that code wins over cache on any disagreement, and a reviewer can only apply that rule if they know how old the cache is — and they cannot look, because it lives in `.git/` where no interface shows it.
+
 ### 2b. Check whether testimony exists at all
 
 Capture is triggered by someone choosing to run it, and nothing in git records that choice. So the only way to know whether the testimony layer is working is to check for its absence — and this skill runs at the moment that check is cheapest and most useful, because a missing note is still fixable before the branch lands.

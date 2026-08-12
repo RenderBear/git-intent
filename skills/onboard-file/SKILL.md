@@ -30,13 +30,18 @@ The line-level question is the common one — "why is *this* here" is asked far 
 
 ```bash
 cat "$(git rev-parse --git-common-dir)/intent/base.md" 2>/dev/null
-grep -rl 'client.py' .branch-notes/ 2>/dev/null
+sed -n '/^## src\/client\.py$/,/^## /p' .branch-notes/_archive/INDEX.md 2>/dev/null
+grep -rl 'client.py' .branch-notes/ 2>/dev/null      # fallback: no index yet
 git check-attr -a -- src/client.py
 ```
+
+`_archive/INDEX.md` is keyed on path, which is what you have in hand — it names the notes that touched this file directly. The `grep -rl` fallback only finds notes whose prose happens to spell the filename out, so a note saying "moved the limiter inside dispatch" is invisible to it. If the index is missing, say so and mention `/reconcile-notes` regenerates it.
 
 The archive under `.branch-notes/_archive/` matters more than the live notes here. A landed branch's note describes code that is now in the integration branch — that file is at peak usefulness at exactly the moment it looks like history.
 
 The baseline says whether this file is hot or dormant, who has been in it, and what it changes together with. All three change the advice: dormant code with no tests is a different risk from a file three people are editing this week, and a file that always changes alongside another is a file you cannot safely change alone.
+
+Quote the baseline's `Generated at:` SHA whenever you use it. This skill's whole audience is someone unfamiliar with the file, which makes them exactly the reader least able to notice that "dormant for two years" stopped being true last month — and the cache lives in `.git/`, so they cannot look.
 
 ### 2. Establish the shape
 

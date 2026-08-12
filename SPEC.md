@@ -15,8 +15,13 @@ over git refs. The intelligence is rented.
 
 These are load-bearing. Each one is a thing this could become and must not.
 
-- **Not a service.** No daemon, no server, no database, no background process. Every event is
-  detectable from git state by a command that terminates.
+- **Nothing has to be running.** No daemon, no server, no database, no background process — and
+  no component whose absence stops a skill working. Every moment is detectable from git state by
+  a command that terminates. This is the form of the rule that survives §6's CI transport, which
+  *is* something someone operates but which nothing depends on: an absent check costs you the
+  check, never correctness (I6). "Not a service" was the old wording and it drew the line in the
+  wrong place — the question was never whether a process exists, but whether anything breaks
+  when it doesn't.
 - **Not a git wrapper.** Nobody needs a nicer `git merge`. If git already does it, this defers.
 - **Not an ADR system.** Decisions about architecture live in `README.md`, `ARCHITECTURE.md`,
   `CHANGELOG.md`, and `docs/adr/`. Those have their own review discipline and this must not
@@ -41,7 +46,7 @@ One question sorts every artifact: **what does deleting it cost?**
 
 Two earlier forms of this taxonomy each failed on a specific artifact. Sorting by *who could
 produce* an item could not place an archived note, which is author-only but neither perishable
-nor branch-local. Sorting by *regenerability* could not place §3.7's record of which pairs have
+nor branch-local. Sorting by *regenerability* could not place §4.1's record of which pairs have
 already been analyzed — that is not recoverable from history, yet losing it costs only a
 redundant re-analysis. Cost of deletion places both, and it is the property the rules actually
 depend on.
@@ -92,7 +97,7 @@ The cache holds only what git can answer:
 - ownership and bus factor, from authorship
 - coupling — files that change together — from commit co-occurrence
 - per-branch changed-path sets, so two skills needing the same intersection compute it once
-- pairwise exposure scores, and the tip SHAs at which each pair was last analyzed (§3.7)
+- pairwise exposure scores, and the tip SHAs at which each pair was last analyzed (§4.1)
 - test, lint, and build commands, read from CI config verbatim
 - pointers to `README.md` / `ARCHITECTURE.md` / `docs/adr/`, never restatements of them
 
@@ -168,7 +173,7 @@ That is a state transition, not filing. Three things change:
 - It stops being branch-local. It now lives on the integration branch and is read by people who
   never saw the branch.
 - Its retrieval key changes. Nobody remembers `sam/fix-2` in eighteen months, so archived notes
-  are found by the paths and symbols in their frontmatter (§7.1), not by branch name.
+  are found by the paths and symbols in their frontmatter (§8.1), not by branch name.
 
 Archived notes are the input to `release-notes`, `onboard-file`, and rung 2 above. They are the
 long-lived half of the system and the reason capture is worth doing at all.
@@ -192,19 +197,37 @@ Skills **read** these files. Skills never write them.
 
 ## 3. Lifecycle
 
-Eight events. Six are detectable from git state alone, which is the entire argument that no
-service is needed: any transport can evaluate the detector and decide.
+Eight moments. **One is unrepeatable, three have windows that close, and four converge** — their
+effect is derivable from repository state at any later time, so missing one costs a delay rather
+than the thing itself. That split is the transport argument in full: nothing has to be watching,
+because most of what could be missed can be caught up afterwards.
 
-| Event | Detector | Actor | Gate | Effect |
+| Moment | Detector | Actor | Gate | If nobody was watching |
 |---|---|---|---|---|
-| `branch.start` | `git rev-list --count $BASE..HEAD` = 0 | `collision-scan` | auto | none |
-| `decision.made` | *not directly — see §3.2* | `capture-diff` | append | note appended |
-| `branch.ready` | ahead of base, human says so | `capture-diff`, `review-diff` | append | note completed |
-| `review.round` | `git log <anchor>..HEAD` non-empty | `review-diff` → `capture-diff` | append | note re-anchored |
-| `queue.forming` | ≥2 unmerged branches ahead of base | `merge-order` | auto | none |
-| `conflict.raised` | `git ls-files -u` non-empty | `resolve-conflicts` | propose | nothing written |
-| `branch.landed` | commits reachable from base ref | `reconcile-notes`, `semantic-scan` | archive / confirm | note archived, cache invalidated |
-| `release.cut` | a tag appears on the base ref | `release-notes` | auto | none |
+| `decision.made` | *none — see §3.2* | `capture-diff` | append | **lost.** No commit, no ref, nothing to recover from |
+| `branch.start` | `git rev-list --count $BASE..HEAD` = 0 | `collision-scan` | auto | **window closes.** Uncommitted work is not in git at all |
+| `conflict.raised` | `git ls-files -u` non-empty | `resolve-conflicts` | propose | **window closes.** Empty by construction once resolved |
+| `review.round` | `git log <anchor>..HEAD` non-empty | `review-diff` → `capture-diff` | append | drift converges; the capture it should trigger does not |
+| `branch.ready` | ahead of base, human says so | `capture-diff`, `review-diff` | append | converges |
+| `queue.forming` | ≥2 unmerged branches ahead of base | `merge-order` | auto | converges, though the answer's value decays |
+| `branch.landed` | commits reachable from base ref | `reconcile-notes`, `semantic-scan` | archive / confirm | converges |
+| `release.cut` | a tag appears on the base ref | `release-notes` | auto | converges |
+
+The convergent rows are, not coincidentally, the ones that happen where no agent is. Review and
+merge occur in a browser tab, so no transport in §6 reaches them — and the long-lived half of the
+system depends on `branch.landed`, which is a button on a web page. **Convergence (§4.2) is what
+makes that survivable**: the effect is recomputed on the next invocation rather than missed.
+
+The three closing windows are what a transport genuinely has to reach, and the honest status is
+that only one of them is reliably reachable. `conflict.raised` happens in a terminal because git
+forces it there, which is why `resolve-conflicts` is the most dependable skill in the set.
+`decision.made` is reachable only from a session that was present, and `branch.start`'s
+uncommitted population evaporates within the hour.
+
+Earlier versions of this section claimed eight events and six detectors. Six *are* detectable,
+but nothing dispatches on them: hooks print to stderr and exit, and every other transport waits
+for someone to type a command. The system is pull with prompts, and describing it as event-driven
+was vocabulary the mechanism never earned.
 
 ### 3.0 Two skills are outside the lifecycle, deliberately
 
@@ -384,7 +407,7 @@ what makes it expensive. Nothing is written to the tree.
 A note whose `captured_at` predates the branch tip is archived **flagged as stale**, never
 refused. By archive time the branch has landed, so `captured_at` trails the tip whenever any
 commit followed capture — the normal case per §3.4 — and after a squash merge the branch is
-gone and the tip does not resolve at all. Refusing would block the ~99% path that §4 exempts
+gone and the tip does not resolve at all. Refusing would block the ~99% path that §5 exempts
 from gating precisely so the folder does not rot. The flag is the whole requirement: §3.4's
 drift must not become permanent *silently*, in the one skill whose entire job is not to lose
 things.
@@ -392,7 +415,17 @@ things.
 `semantic-scan` also fires here: the merge that just completed cleanly is the population this
 layer exists to check.
 
-### 3.7 Exposure — risk ranking as a standing state
+## 4. Predicates
+
+Two things in this design are not events and were only ever filed under §3 because they fire in
+the same places. A predicate is evaluated against current state by whoever happens to be running,
+answers the same way regardless of when it is asked, and has no moment it can miss.
+
+They are how the layer survives having no dispatcher. §3's four convergent moments do not need
+to be caught because §4.2 catches up their effects; §3's long-lived risk does not need an event
+because §4.1 ranks it continuously.
+
+### 4.1 Exposure — risk ranking as a standing state
 
 Deep semantic analysis costs too much to run over a repo, so it needs a triage layer, and that
 layer is cheap enough to keep current continuously.
@@ -425,7 +458,47 @@ tries to land it on a Friday. Exposure surfaces it before that.
 An exposure score is never a finding. "This pair is exposed" and "this pair is broken" are
 different claims, and conflating them turns the ranking into noise within two runs.
 
-## 4. Gates
+### 4.2 Convergence — catching up what nobody was watching
+
+Someone clicks Merge in a browser. No hook fires, no session exists, `reconcile-notes` never
+runs. Three weeks later `.branch-notes/` holds fourteen notes for branches that no longer exist,
+`_archive/` is empty, and every skill that reads the archive has been answering rung 3 while
+believing the repo simply never adopted the layer.
+
+The fix is not a transport that reaches the browser. It is noticing that **the effect of a
+convergent moment is a function of current state, not of having been present when it happened.**
+Each of these is answerable today, next week, or next year, with the same result:
+
+| Question | Test | Repairs |
+|---|---|---|
+| Notes for branches that are gone? | note exists, branch absent local **and** remote | archive them (§3.6) |
+| Note behind its branch? | `captured_at` ≠ tip | flag drift, prompt re-anchor (§3.4) |
+| Cache behind the tree? | `Generated at` SHA vs structural inputs | regenerate (§2.1) |
+| Pairs never analyzed at their current tips? | `checked:` SHAs vs `git rev-parse` | rank them (§4.1) |
+| Archive index behind the archive? | index older than newest archived note | regenerate (§8.4) |
+
+**Any skill invoked on the integration branch evaluates this before doing its own work**, reports
+what it found, and repairs only what its own gate already permits. `reconcile-notes` archives,
+because §5 grants it that. Everything else reports and names the skill that would fix it —
+`release-notes` finding four unarchived notes says so and points at `reconcile-notes`; it does
+not archive them itself.
+
+The rule that makes this safe is that **convergence repairs bookkeeping and never testimony.**
+Archiving moves a file. Regenerating rebuilds a cache. Neither invents a claim. Drift is
+*reported* rather than fixed, because fixing it means appending reasoning to somebody else's note
+and no amount of catching up entitles anything to do that.
+
+Assertions are checked **only for live branches** (§8.1). An archived note is frozen by §8.3 and
+cannot be superseded, so the first legitimate rename after it lands would put it permanently in
+violation — and a check that accumulates permanent failures is a check that gets ignored, taking
+the live ones with it. Scope to notes belonging to branches still in flight, or to the notes a
+pull request touches.
+
+What this buys is precise and worth stating narrowly: a missed convergent moment becomes a
+delay, not a loss. It does nothing for §3's three closing windows, and nothing at all for
+`decision.made`, which remains the one thing in this design that a later run cannot reconstruct.
+
+## 5. Gates
 
 Three classes. This is the whole human-in-the-loop design, and it needs no service because the
 loop is the pull request.
@@ -447,14 +520,17 @@ caught by the existing review; changes are not and are not.
 Two skills sit outside this, and both say so where they act. `bisect-report` executes, because
 bisecting cannot be done any other way. `reconcile-notes` archives landed notes itself — a
 `git mv` of markdown inside `.branch-notes/`, staged and not committed, with the undo printed.
+It regenerates `_archive/INDEX.md` (§8.4) under the same exception and for a stronger reason:
+that file is generated output, so there is nothing in it for a human to approve, and holding a
+regeneration behind a proposal only guarantees the index drifts from the archive it describes.
 Its exception is justified by the shape of the work rather than by convenience: archiving is the
 ~99% path after every landing, and a proposal nobody executes is how the folder rots. Deletion
 stays behind an explicit yes, because that destroys reasoning that exists nowhere else.
 
-## 5. Transports
+## 6. Transports
 
-Events are declarative; how they fire is pluggable. Four transports, none required, all
-optional, freely mixed. This is the "no separate service" answer in full.
+Moments are declarative; how they fire is pluggable. Five transports, none required, all
+optional, freely mixed. This is the "nothing has to be running" answer in full.
 
 **Human.** Type the slash command. Always works, requires nothing, and is the floor every
 other transport builds on.
@@ -479,8 +555,43 @@ One sharp edge, documented at the point of use: `core.hooksPath` **replaces** th
 entirely, so any existing `.git/hooks` content stops running the moment it is set. Where a repo
 already has hooks, the two files are symlinked individually instead.
 
+**CI.** A workflow in the repository being worked on, shipped in [`ci/`](ci/). This is the only
+transport that reaches the browser tab — which is where §3's four convergent moments actually
+happen, and therefore the only one that addresses the fact that review and merge are attended by
+nobody with a session.
+
+It works because the falsifiability layer is mechanical by construction. Resolving an assertion's
+anchor, comparing `captured_at` to a tip, and asking whether a note has dated entries are `git
+grep` and `git log`. No model, so no session.
+
+On `pull_request`, scoped to the notes that PR touches:
+
+- a live assertion **violated** → failing check
+- a live assertion **unresolvable** → comment, never a failure (I15)
+- `captured_at` behind the branch tip → comment
+- note missing, or a stub with no dated entries → comment
+
+On push to the integration branch, it *reports* what §4.2's convergence pass would repair. It
+does not repair it: archiving is a commit to the integration branch and nothing here has a
+mandate to make one.
+
+Two things separate this from the thing §1 rules out. It is a command that terminates, triggered
+by a git event, holding no state between runs. And nothing depends on it — remove the workflow
+and you lose the checks and keep every skill, which is I6.
+
+What it costs, uniquely in this set, is portability: every other transport is plain git, and this
+one is written against a specific provider's YAML. So the checking lives in a POSIX script the
+workflow calls, and porting is a different six-line wrapper rather than a rewrite.
+
+**Only `violated` fails the build.** Unresolvable is a question and drift is a reminder, and a
+check that blocks on either gets disabled within a week — the same argument this section already
+makes for hooks exiting 0. There is a second reason, and it is the sharper one: an assertion
+enforced as strictly as `.gitattributes` has turned one branch author's sentence into repository
+policy that nobody voted on. Assertions and policy are both claims the repo can be checked
+against (§2), and the only thing keeping them apart is that one of them can be ignored.
+
 **Harness.** A worktree manager that already knows about branch creation and landing can fire
-the events directly. The contract it needs is small:
+the moments directly. The contract it needs is small:
 
 ```
 branch.start     { branch, base_ref }
@@ -494,7 +605,7 @@ Each payload carries only refs and SHAs. No state is passed between events; ever
 re-derived from git at handling time. An event that never fires costs correctness nothing —
 the next skill invocation derives what it needs.
 
-## 6. Skill contracts
+## 7. Skill contracts
 
 Every skill declares what it reads and what it writes. Composability depends on it.
 
@@ -507,10 +618,10 @@ Every skill declares what it reads and what it writes. Composability depends on 
 | `bisect-report` | git, runs the suite | — | *runs* |
 | `review-diff` | git, own note incl. assertions, cache, policy | — | auto |
 | `resolve-conflicts` | git stages, both sides via the §2.3 ladder incl. assertions, policy | — | propose |
-| `merge-order` | git, queued notes via `git show`, cache | — | auto |
+| `merge-order` | git, queued notes via `git show` incl. assertions, cache | — | auto |
 | `onboard-file` | git, cache, archive | — | auto |
 | `release-notes` | git, archive | — | auto |
-| `reconcile-notes` | git, notes, cache anchor | archive moves, cache invalidation | archive / confirm |
+| `reconcile-notes` | git, notes, archive frontmatter, cache anchor | archive moves, `_archive/INDEX.md`, cache invalidation | archive / confirm |
 
 Only `capture-diff` writes testimony. Four skills write to the cache, which is not a durable
 write — anything there can be deleted and recomputed.
@@ -523,7 +634,7 @@ which is `review-diff`'s requirement mode. Same mechanism, different referent, a
 `?` verdict is the same honesty as `unresolvable`: an assertion that could not be evaluated,
 reported as such rather than resolved by guessing.
 
-### 6.1 The two scans do not overlap
+### 7.1 The two scans do not overlap
 
 `collision-scan` and `semantic-scan` look adjacent and are disjoint by construction:
 
@@ -540,9 +651,9 @@ different things.
 
 Path intersection is computed once into the cache, so whichever runs second does not recompute it.
 
-## 7. File formats
+## 8. File formats
 
-### 7.1 `.branch-notes/<branch>.md`
+### 8.1 `.branch-notes/<branch>.md`
 
 Append-only. Never rewrite an existing entry: a decision recorded on Tuesday describes what was
 true on Tuesday, and editing it destroys the record of the reversal, which is often the most
@@ -647,7 +758,7 @@ Three outcomes, never two:
 Collapsing the third into the second is how an assertion layer gets switched off. Every
 legitimate refactor moves an anchor, and a rename reported as a violation teaches people to
 ignore violations — which costs the real ones too. **Unresolvable is a question — should this
-assertion be superseded? — and never a failure.** It is the same argument §5 makes for hooks
+assertion be superseded? — and never a failure.** It is the same argument §6 makes for hooks
 exiting 0, applied to a different mechanism.
 
 `absent` has no anchor and is therefore two-valued. That is a real asymmetry and not an
@@ -680,23 +791,65 @@ same reason.
 one question in prose; the skill turns it into a check using the paths and symbols it has already
 computed, and puts the sentence in `why:` so the translation can be audited. Asking anyone to
 hand-write `contains src/client.py:dispatch RateLimiter` violates I4 and would end adoption in a
-week. The audit is §4's existing gate: sentence and predicate arrive in the PR diff side by side.
+week. The audit is §5's existing gate: sentence and predicate arrive in the PR diff side by side.
 
 A note with no `assert` block is normal and not a defect — the branch may have had no claim worth
 checking, which is the honest state for most typo fixes and dependency bumps.
 
-### 7.2 `.git/intent/base.md`
+### 8.2 `.git/intent/base.md`
 
 Generated. Carries `Generated at: <sha>`. Contains no prose a human authored — if a claim in it
 could not be recomputed tomorrow from the same history, it belongs in `ARCHITECTURE.md`.
 
-### 7.3 `.branch-notes/_archive/<branch>.md`
+### 8.3 `.branch-notes/_archive/<branch>.md`
 
 Identical format, moved by `reconcile-notes`, with `merged` filled in. Path structure mirrored
 so `feature/rate-limit` archives to `_archive/feature/rate-limit.md` rather than colliding with
 `hotfix/rate-limit`. Never rewritten after archiving.
 
-## 8. Invariants
+Frozen also means **never checked**. §8.1's assertions are evaluated for live branches only: an
+archived note cannot be superseded, so the first legitimate rename after it lands would put it
+permanently in violation, and a check that accumulates permanent failures is a check nobody reads.
+
+### 8.4 `.branch-notes/_archive/INDEX.md`
+
+Generated, committed, and the only file in this design written for a human to browse.
+
+`_archive/` becomes two hundred files named after branches nobody remembers, which is a folder
+nobody opens. §2.4 says archived notes are found by the paths and symbols in their frontmatter —
+found by *what*, though? Grepping frontmatter is an agent's move, not a person's. Without an index
+the layer's longest-lived artifact is reachable by machine and unreachable by everyone else.
+
+```markdown
+<!-- generated by reconcile-notes · 2026-09-14 · 63 notes · do not edit -->
+
+## src/client.py
+- [feature/rate-limit](feature/rate-limit.md) — token-bucket limiter on dispatch · 2026-08-06
+- [refactor/payments-v2](refactor/payments-v2.md) — extracted dispatch into PaymentDispatcher · 2026-09-01
+
+## src/config.py
+- [feature/rate-limit](feature/rate-limit.md) — RATE_LIMIT_RPS · 2026-08-06
+```
+
+Keyed on `paths`, because a path is what somebody has in front of them when the question arrives.
+
+This is the first artifact for §2's location rule, and it is worth naming as such. Every entry is
+recomputed from the frontmatter of every archived note, so deleting it costs a regeneration and
+nothing else — **Cache**, by §2's test. It is committed anyway, because its audience is human.
+Cost decided the kind; audience decided the location.
+
+Being a committed generated file, it needs `-merge`, or two branches archiving different notes
+conflict in output neither of them wrote:
+
+```gitattributes
+.branch-notes/_archive/INDEX.md   -merge
+```
+
+`reconcile-notes` regenerates it **wholesale**, never appending. An appended index would be the
+one generated file in the repo holding state that cannot be rebuilt from its inputs — precisely
+the mistake §4.1's timestamps made before Phase 0 removed them.
+
+## 9. Invariants
 
 Testable. Each one names a way the layer could rot into something worse than nothing.
 
@@ -725,7 +878,7 @@ Testable. Each one names a way the layer could rot into something worse than not
   in a linked worktree `.git` is a file.
 - **I12** Branch relevance is ranked by liveness, never filtered by date alone, and whatever
   falls below a cut is counted in the output rather than dropped.
-- **I13** A skill that finds itself in the other scan's population (§6.1) hands off by name
+- **I13** A skill that finds itself in the other scan's population (§7.1) hands off by name
   rather than answering.
 - **I14** Any output resting on the cache states the `Generated at:` SHA it read. I5 says the
   code wins on disagreement, and that is a rule the reader has to be able to apply — a reader
@@ -735,17 +888,17 @@ Testable. Each one names a way the layer could rot into something worse than not
   `violated`, and never blocks. Refactors move anchors; a layer that reports legitimate refactors
   as failures gets switched off, and takes every real violation with it.
 
-## 9. Decisions taken, and what would reopen them
+## 10. Decisions taken, and what would reopen them
 
 **State is sorted by cost of deletion.** Settled, after two earlier forms each failed on a
 specific artifact. The producer-based taxonomy could not place an archived note; the
-regenerability-based one could not place §3.7's record of what has been analyzed, which no clone
+regenerability-based one could not place §4.1's record of what has been analyzed, which no clone
 can reproduce yet costs nothing but time to lose. The trigger to add a fifth row is an artifact
 whose loss costs something *other* than time, reasoning, or enforcement.
 
 **`base.md` is uncommitted.** Settled, but on a narrower argument than the one it used to rest
 on. The old trigger was authorship — "the moment anyone wants one hand-written line in it." That
-test is wrong, and §3.7 is the proof: it added machine-written state that no clone can reproduce
+test is wrong, and §4.1 is the proof: it added machine-written state that no clone can reproduce
 and it passed an authorship check cleanly. The trigger is **audience**. `base.md` stays
 uncommitted for as long as only agents read it; the moment a human is expected to open it, §2's
 location rule says commit it with `-merge`, and the same holds for any index built for human
@@ -765,10 +918,27 @@ recurs across branches. The answer then is a fourth predicate with the same one-
 never an expression language — the moment an assertion needs parsing rather than dispatching,
 this has become a test framework competing with the repo's own.
 
+**Convergence replaces dispatch.** Settled. §3 claimed eight events and six detectors while
+nothing dispatched on any of them — hooks print to stderr and exit, and every other transport
+waits for someone to type a command. The fix was not to add a dispatcher, which is the service §1
+rules out, but to notice that most of these moments do not need to be caught: four are functions
+of current state and can be recomputed whenever anyone next looks. The trigger to reopen is a
+convergent moment whose *value* decays fast enough that recomputing it later is worthless.
+`queue.forming` already sits near that line — a merge order computed after the merges is
+archaeology — and if a second one joins it, convergence is buying less than this section claims.
+
+**CI is a transport, and only `violated` blocks.** Settled. It satisfies the sharpened §1: a
+command that terminates, triggered by a git event, holding no state between runs, whose absence
+costs the check and never correctness. Blocking on unresolvable or on drift would get it deleted
+within a week — §6's argument for hooks exiting 0, unchanged — and would also convert one branch
+author's sentence into repository policy nobody voted on. The trigger to reopen is evidence that
+the advisory output is ignored in practice, in which case the answer is fewer checks, not harder
+ones.
+
 **Exposure is a standing predicate, not an event.** Settled that it belongs in the model,
-unsettled in where it sits. §3.7 is a numbered subsection of a section whose first line reads
+unsettled in where it sits. §4.1 is a numbered subsection of a section whose first line reads
 "Eight events," and exposure is explicitly not one — it is a predicate over current state that
-any invocation can evaluate, and it exists because the highest-risk case in §3.7's own example
+any invocation can evaluate, and it exists because the highest-risk case in §4.1's own example
 is one where *no event fires until someone tries to land it on a Friday*. It stays under §3 for
 now because it fires in the same places. The trigger to move it is a second predicate of the
 same shape — unarchived notes for branches that are gone, anchors that have drifted — at which

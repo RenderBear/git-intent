@@ -82,15 +82,41 @@ For each surviving pair, the question isn't whether they overlap — it's whethe
 
 A directed order between two branches is only real in the first two cases. Everything else is a preference, and should be labelled as one.
 
-### 4. Report
+### 4. Check each branch's assertions against the others
+
+The first two cases above are inferences. Where the queued branches carry assertions, they stop being inferences and become a check — this is the only place in git-intent where one branch's testimony is evaluated against another branch's code, and it is what the whole assertion layer was building toward.
+
+Take each queued note's live assertions (skip anything another entry supersedes) and resolve **the anchor only** against every other queued branch's tip:
+
+```bash
+# does rate-limit's anchor src/client.py:dispatch survive payments-v2?
+git grep -qw -e dispatch "origin/refactor/payments-v2" -- src/client.py
+git cat-file -e "origin/refactor/payments-v2:src/client.py" 2>/dev/null   # file still there at all?
+```
+
+**Resolve the anchor, never the predicate.** The other branch's tree does not contain this branch's change — `RateLimiter` isn't in payments-v2 because rate-limit hasn't merged — so evaluating the full check against a sibling reports a violation for every assertion in the queue. The anchor is the part that exists in the shared base, which is exactly why it's the part that can be disturbed.
+
+Two outcomes:
+
+- **Anchor survives** — that branch does not move this claim's ground. No constraint from this assertion.
+- **Anchor does not resolve** — the other branch renamed, extracted, or deleted what this claim is anchored to. **This branch merges first**, or its claim has to be re-established by hand during the second merge, by whoever is resolving a conflict and has never read the note.
+
+That second case is `merge-order`'s central heuristic — *B edits a symbol A relocates → A first* — arriving as a fact instead of a reading of the diff. Report it as such, and quote the assertion's `why:` line: "these two branches share a file" is arguable, and "payments-v2 dissolves the anchor rate-limit's limiter depends on, and the note says a version that only limits first attempts passes tests" is not.
+
+Where a branch has no note, or a note with no assertions, say so. Zero constraints found and zero constraints checkable look identical in a queue report and mean opposite things.
+
+### 5. Report
 
 ```
 Queue: 5 branches into dev
+baseline cache: a3f21c8 · 3 of 5 branches have notes
 
 DEPENDENCIES
 
-  refactor/payments-v2 → feature/rate-limit
+  refactor/payments-v2 → feature/rate-limit                    [assertion]
     v2 extracts dispatch() into PaymentDispatcher. rate-limit wraps dispatch().
+    rate-limit a1 anchors on src/client.py:dispatch, which does not resolve at
+    v2's tip — "the limiter has to wrap retries, not just first attempts".
     If rate-limit merges first, its limiter has to be relocated by hand during
     the second merge, and a version that only limits first attempts will pass
     tests. Real ordering constraint.
@@ -103,6 +129,7 @@ NO CONSTRAINT
   feature/csv-import      independent — no shared files
   chore/bump-deps         lockfile only; conflicts with everything, resolve by
                           regenerating whichever lands second
+  feature/csv-import      no note — 0 constraints checkable, not 0 found
 
 EXPECTED FRICTION
 
