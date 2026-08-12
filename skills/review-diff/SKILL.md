@@ -93,7 +93,7 @@ Every note ends with the commit it was written against. Review changes code; nob
 One comparison catches it, and this skill is already reading both sides:
 
 ```bash
-ANCHOR=$(grep -oE '[0-9a-f]{7,40}' ".branch-notes/$BRANCH.md" 2>/dev/null | tail -1)
+ANCHOR=$(sed -n 's/^captured_at: *//p' ".branch-notes/$BRANCH.md" 2>/dev/null)
 [ -n "$ANCHOR" ] && git log --oneline "$ANCHOR"..HEAD
 ```
 
@@ -107,6 +107,40 @@ Re-run capture-diff before merging.
 ```
 
 Behavioral commits since the anchor mean `capture-diff` should append and re-anchor. Review nits mean re-anchoring alone. Either way this is a finding for the author, not something to fix silently — the note is their testimony and appending to it on their behalf is putting words in their mouth.
+
+### 2d. Evaluate the branch's own assertions
+
+The note's `assert` block is what the author said had to survive, written so a command can falsify it. This is the last cheap moment to check — once the branch lands, a broken claim is a production question instead of a review comment.
+
+Anchor first, then the predicate. That order is the whole design:
+
+```bash
+git grep -qn '\bdispatch\b' -- src/client.py   || echo "a1 unresolvable"   # anchor
+git grep -qn 'RateLimiter'  -- src/client.py   || echo "a1 violated"       # predicate
+```
+
+Three verdicts, and the third is not a gentler second:
+
+```
+ASSERTIONS
+  ✓ a1  contains src/client.py:dispatch RateLimiter
+  ✗ a2  absent RetryDecorator
+        reintroduced at src/retry.py:L14 — the note says this double-counted
+        every retried request
+  ? a3  contains src/client.py:validate_charge Money
+        anchor gone: src/client.py:validate_charge no longer resolves. Moved in
+        this branch? If so, supersede a3 rather than dropping it.
+```
+
+- **✓ holds** — anchor resolved, predicate true.
+- **✗ violated** — anchor resolved, predicate false. Quote the assertion's `why:` line alongside it; a predicate without its sentence is unarguable, and the sentence is the thing the author actually meant.
+- **? unresolvable** — the anchor is gone. A **question, not a failure.**
+
+Never report unresolvable as a failure and never block on one. Every legitimate refactor moves an anchor, and a rename that reads as a violation teaches people to skip the whole section — which costs the real violations too. If the answer is that the assertion should be superseded, that is `capture-diff`'s job and not this skill's; the note is the author's testimony and rewriting it for them is putting words in their mouth.
+
+Check only **live** assertions. An entry named by another entry's `supersedes:` is history, and evaluating it reports violations for claims that were deliberately retired.
+
+Report the scope limit where it matters: the needle is file-scoped even when the anchor names a symbol, so `contains src/client.py:dispatch RateLimiter` means both appear in that file — not that one encloses the other.
 
 ### 3. Separate signal from noise
 

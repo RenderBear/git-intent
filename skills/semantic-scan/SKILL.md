@@ -123,6 +123,8 @@ git show branch-a:.branch-notes/branch-a.md 2>/dev/null
 
 The note lives on the branch it describes, so read it through the ref. After landing it moves to `.branch-notes/_archive/<branch>.md` on the integration branch — check there too. Its "must survive a conflict" line often names the invariant directly, which beats inferring it.
 
+Its `assert` block names the invariant *mechanically*. Each live entry is a contract the author committed to in a form one `git grep` can falsify, so evaluate them against the post-merge state before spending any effort inferring contracts from diffs — anchor first, and an anchor that no longer resolves is `unresolvable`, never a finding. A violated assertion is the one result this skill can report without hedging: it is not an inference about what a caller might depend on, it is the author's own written claim, broken.
+
 ### 3. Find dependents introduced by side B
 
 ```bash

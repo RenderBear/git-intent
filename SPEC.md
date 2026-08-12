@@ -501,12 +501,12 @@ Every skill declares what it reads and what it writes. Composability depends on 
 | Skill | Reads | Writes | Gate |
 |---|---|---|---|
 | `baseline-scan` | git, CI config, `.gitattributes`, `CODEOWNERS` | cache | auto |
-| `capture-diff` | git, cache, own note | `.branch-notes/<branch>.md` | append |
+| `capture-diff` | git, cache, own note | `.branch-notes/<branch>.md`, incl. assertions | append |
 | `collision-scan` | git, worktrees incl. uncommitted, others' notes via `git show`, cache | cache (path sets) | auto |
-| `semantic-scan` | git, call sites, notes and archive, cache | cache (exposure, last-checked) | auto |
+| `semantic-scan` | git, call sites, notes and archive incl. assertions, cache | cache (exposure, checked SHAs) | auto |
 | `bisect-report` | git, runs the suite | — | *runs* |
-| `review-diff` | git, own note, cache, policy | — | auto |
-| `resolve-conflicts` | git stages, both sides via the §2.3 ladder, policy | — | propose |
+| `review-diff` | git, own note incl. assertions, cache, policy | — | auto |
+| `resolve-conflicts` | git stages, both sides via the §2.3 ladder incl. assertions, policy | — | propose |
 | `merge-order` | git, queued notes via `git show`, cache | — | auto |
 | `onboard-file` | git, cache, archive | — | auto |
 | `release-notes` | git, archive | — | auto |
@@ -514,6 +514,14 @@ Every skill declares what it reads and what it writes. Composability depends on 
 
 Only `capture-diff` writes testimony. Four skills write to the cache, which is not a durable
 write — anything there can be deleted and recomputed.
+
+**One writer, two readers, and the referents differ.** `capture-diff` locates a claim at decision
+time. Everything downstream checks it against one of two things: another transition —
+*does this composition preserve what each side claimed?*, which is `resolve-conflicts` and
+`semantic-scan` — or a specification — *does this state satisfy the clause it was written for?*,
+which is `review-diff`'s requirement mode. Same mechanism, different referent, and `review-diff`'s
+`?` verdict is the same honesty as `unresolvable`: an assertion that could not be evaluated,
+reported as such rather than resolved by guessing.
 
 ### 6.1 The two scans do not overlap
 
@@ -553,6 +561,11 @@ paths:
 symbols:
   - src/client.py:dispatch
   - src/client.py:_retry_with_backoff
+assert:
+  - id: a1
+    added: 2026-08-06
+    check: contains src/client.py:dispatch RateLimiter
+    why: the limiter has to wrap retries, not just first attempts
 ---
 
 # feature/rate-limit
@@ -564,11 +577,11 @@ PROJ-412 — rate limiting for outbound requests.
 Wraps `dispatch()` in a token-bucket limiter, configured by RATE_LIMIT_RPS.
 
 ## Why this shape
-- 2026-08-04 — Stripe rate-limits per API key, not per IP, so the bucket keys on
-  credential rather than connection. This is why it lives in the client rather
-  than in middleware.
-- 2026-08-06 — Tried a decorator on the retry loop first. Retries re-enter
-  dispatch, so it double-counted every retried request.
+- 2026-08-04 · in-session — Stripe rate-limits per API key, not per IP, so the
+  bucket keys on credential rather than connection. This is why it lives in the
+  client rather than in middleware.
+- 2026-08-06 · in-session — Tried a decorator on the retry loop first. Retries
+  re-enter dispatch, so it double-counted every retried request.
 
 ## Must survive a conflict
 The limiter has to wrap retries, not just first attempts. If this merges with a
@@ -581,6 +594,13 @@ Exhaustion behavior is unspecified and untested.
 Dates under *Why this shape* are required. The reversal on the 6th only means something against
 the attempt on the 4th, and an undated list reads as simultaneous.
 
+Each dated entry also carries its **provenance**, and there are exactly two values.
+`in-session` was appended while the reasoning was still in context. `reconstructed` was recovered
+later from a §3.2 fingerprint and is an inference somebody confirmed. Those are different claims
+and today nothing distinguishes them — which matters most to a reader who never opens the code,
+for whom the note is not documentation but the only account of what happened. The absence check
+in §3.2 (`grep -c '^- 20[0-9][0-9]-'`) matches both forms unchanged.
+
 `captured_at` is normative — it is the anchor `review.round` compares against, and a note
 without it cannot be checked for drift.
 
@@ -592,6 +612,78 @@ finding an archived note means grepping prose for a filename someone happened to
 note saying "moved the limiter inside dispatch" is invisible to a search for `src/client.py`.
 
 `merged` is left empty by `capture-diff` and filled by `reconcile-notes` on archive.
+
+#### `assert` — the claim, written so a command can falsify it
+
+*Must survive a conflict* is prose, which means nothing can check it. `assert` is its checkable
+shadow. The prose stays: it is what a human reads and what an agent reasons from, and it says
+*why* in a way no predicate does.
+
+Three predicates, and deliberately no more:
+
+| Predicate | Form | Holds when |
+|---|---|---|
+| `exists` | `exists <path>[:<symbol>]` | the path is tracked, and the symbol matches within it |
+| `contains` | `contains <path>[:<symbol>] <needle>` | the anchor resolves **and** the needle appears in that file |
+| `absent` | `absent <needle> [<pathspec>]` | the needle appears nowhere in scope |
+
+Each is one `git grep`. A fourth predicate is how this becomes a language nobody writes, and
+§3.3's one-question budget is the reason to hold that line.
+
+**Evaluation is anchor-first, and the ordering is the whole design.** Resolve the anchor, then
+evaluate the predicate:
+
+```bash
+git grep -qn '\bdispatch\b' -- src/client.py   || echo unresolvable   # anchor
+git grep -qn 'RateLimiter'  -- src/client.py   || echo violated       # predicate
+```
+
+Three outcomes, never two:
+
+- **holds** — the anchor resolved and the predicate is true
+- **violated** — the anchor resolved and the predicate is false. Something that had to survive did not
+- **unresolvable** — the anchor is gone: file renamed, symbol extracted, module split
+
+Collapsing the third into the second is how an assertion layer gets switched off. Every
+legitimate refactor moves an anchor, and a rename reported as a violation teaches people to
+ignore violations — which costs the real ones too. **Unresolvable is a question — should this
+assertion be superseded? — and never a failure.** It is the same argument §5 makes for hooks
+exiting 0, applied to a different mechanism.
+
+`absent` has no anchor and is therefore two-valued. That is a real asymmetry and not an
+oversight: nothing about it can go stale, so nothing about it needs a third outcome.
+
+The needle is **file-scoped even when the anchor names a symbol.** Extracting a symbol's body is
+language-specific and brittle in shell, and this layer buys its reliability by being one grep.
+So `contains src/client.py:dispatch RateLimiter` asserts that `dispatch` still exists in that
+file and `RateLimiter` appears somewhere in it — not that one encloses the other. Report that
+limit where the result is reported; a check overstating its precision is worse than a coarser
+one that doesn't.
+
+**Assertions supersede; they are never edited (I3).** A refactor that legitimately relocates an
+anchor gets a new entry naming the old one:
+
+```yaml
+  - id: a2
+    added: 2026-09-02
+    supersedes: a1
+    check: contains src/transport.py:send RateLimiter
+    why: dispatch moved to transport.py in PROJ-511; the requirement is unchanged
+```
+
+`a1` is neither edited nor deleted. The live set is *derived* — an assertion is live iff nothing
+supersedes it — which keeps the file append-only and leaves a readable history of what was once
+required and when it stopped being. That is the same thing the dated entries preserve, for the
+same reason.
+
+**`capture-diff` writes the predicate; the human writes the sentence.** The human answers §3.3's
+one question in prose; the skill turns it into a check using the paths and symbols it has already
+computed, and puts the sentence in `why:` so the translation can be audited. Asking anyone to
+hand-write `contains src/client.py:dispatch RateLimiter` violates I4 and would end adoption in a
+week. The audit is §4's existing gate: sentence and predicate arrive in the PR diff side by side.
+
+A note with no `assert` block is normal and not a defect — the branch may have had no claim worth
+checking, which is the honest state for most typo fixes and dependency bumps.
 
 ### 7.2 `.git/intent/base.md`
 
@@ -610,7 +702,8 @@ Testable. Each one names a way the layer could rot into something worse than not
 
 - **I1** No skill writes to a tracked source file.
 - **I2** Every committed intent file arrives through a PR and is reviewed there.
-- **I3** Notes are append-only and dated.
+- **I3** Notes are append-only and dated. Assertions supersede rather than change, and the live
+  set is derived from what nothing supersedes.
 - **I4** Nothing derivable from git is ever asked of a human. This is the adoption constraint,
   and it outranks completeness.
 - **I5** Cache is never authoritative over code. On disagreement, the code is right and the
@@ -638,6 +731,9 @@ Testable. Each one names a way the layer could rot into something worse than not
   code wins on disagreement, and that is a rule the reader has to be able to apply — a reader
   who never opens the code, or who cannot open `.git/intent/` because it is not on any surface
   a human browses, has no other way to know how old the claim is.
+- **I15** An assertion whose anchor no longer resolves is reported `unresolvable`, never
+  `violated`, and never blocks. Refactors move anchors; a layer that reports legitimate refactors
+  as failures gets switched off, and takes every real violation with it.
 
 ## 9. Decisions taken, and what would reopen them
 
@@ -654,6 +750,20 @@ and it passed an authorship check cleanly. The trigger is **audience**. `base.md
 uncommitted for as long as only agents read it; the moment a human is expected to open it, §2's
 location rule says commit it with `-merge`, and the same holds for any index built for human
 retrieval.
+
+**Assertions are three-valued, file-scoped, and written by the skill.** Settled, on three
+findings. Two-valued would collapse `unresolvable` into `violated`, and since every legitimate
+refactor moves an anchor, the layer would report correct work as failure until someone turned it
+off (I15). Symbol-scoped needles would need language-specific body extraction, which trades this
+layer's one reliable property — it is a single `git grep` — for precision it can only sometimes
+deliver. And hand-authored predicates would violate I4 and §3.3's one-question budget, so the
+human writes the sentence and `capture-diff` writes the check, with both landing in the PR diff
+where the translation can be audited.
+
+The trigger to reopen is a claim that genuinely cannot be expressed in the three predicates and
+recurs across branches. The answer then is a fourth predicate with the same one-command property,
+never an expression language — the moment an assertion needs parsing rather than dispatching,
+this has become a test framework competing with the repo's own.
 
 **Exposure is a standing predicate, not an event.** Settled that it belongs in the model,
 unsettled in where it sits. §3.7 is a numbered subsection of a section whose first line reads

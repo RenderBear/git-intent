@@ -108,13 +108,34 @@ In retrospective mode, present the derived summary and anything step 3 turned up
 
 > If this conflicts with something, what has to survive?
 
-That answer is the highest-value line in the file. Everything else is derivable now or reconstructable later; that one is available only from whoever made the decision, and only until they forget.
+That answer is the highest-value line in the file. Everything else is derivable now or reconstructable later; that one is available only from whoever made the decision, and only until they forget. It is also the only answer that becomes machine-checkable — step 5b turns it into an assertion, which is what lets anything downstream find out that it stopped being true.
 
 Ask a second question only if the branch has no reachable requirement and no informative commit messages, in which case: what is this for?
 
 ### 5. Write the entry
 
+The frontmatter is the machine-readable half, and every field in it is derived — `paths` and `symbols` come straight from step 2. None of it is asked for.
+
 ```markdown
+---
+branch: feature/rate-limit
+requirement: PROJ-412
+captured: 2026-08-06
+captured_at: c81f0a2
+merged:
+paths:
+  - src/client.py
+  - src/config.py
+symbols:
+  - src/client.py:dispatch
+  - src/client.py:_retry_with_backoff
+assert:
+  - id: a1
+    added: 2026-08-06
+    check: contains src/client.py:dispatch RateLimiter
+    why: the limiter has to wrap retries, not just first attempts
+---
+
 # feature/rate-limit
 
 ## Requirement
@@ -125,12 +146,12 @@ Per-client buckets, must apply to retries, must fail gracefully under exhaustion
 Wraps `dispatch()` in a token-bucket limiter, configured by RATE_LIMIT_RPS.
 
 ## Why this shape
-- 2026-08-04 — Stripe rate-limits per API key, not per IP, so the bucket is keyed
-  on credential rather than on connection. This is why it lives in the client
-  rather than in middleware.
-- 2026-08-06 — Tried a decorator on the retry loop first. Retries re-enter
-  dispatch, so the decorator double-counted every retried request. Moved the
-  limiter inside dispatch instead. Don't reintroduce the decorator.
+- 2026-08-04 · in-session — Stripe rate-limits per API key, not per IP, so the
+  bucket is keyed on credential rather than on connection. This is why it lives
+  in the client rather than in middleware.
+- 2026-08-06 · in-session — Tried a decorator on the retry loop first. Retries
+  re-enter dispatch, so the decorator double-counted every retried request.
+  Moved the limiter inside dispatch instead. Don't reintroduce the decorator.
 
 ## Must survive a conflict
 The limiter has to wrap retries, not just first attempts. If this merges with a
@@ -140,21 +161,58 @@ only limits first attempts passes tests and is wrong in production.
 ## Open
 Exhaustion behavior is unspecified and untested. Currently blocks; may need to
 fail fast.
-
----
-Last captured at c81f0a2 · 2026-08-06
 ```
 
 Date the entries under "Why this shape". The reversal on the 6th only makes sense against the attempt on the 4th, and an undated list of decisions reads as simultaneous.
 
-The trailing `Last captured at` is **required**, not decorative. It is the anchor every drift check compares against, and a note without one cannot be checked at all — it reads as current forever.
+Mark each one `in-session` or `reconstructed`. The first was written while the reasoning was in the room; the second was recovered from a step-3 fingerprint and is an inference somebody confirmed. Anyone reading this note without reading the code — which is most readers, and all of them in an agent-driven repo — has no other way to tell those apart.
+
+`captured_at` is **required**, not decorative. It is the anchor every drift check compares against, and a note without one cannot be checked at all — it reads as current forever.
 
 ```bash
-ANCHOR=$(grep -oE '[0-9a-f]{7,40}' ".branch-notes/$BRANCH.md" 2>/dev/null | tail -1)
-git log --oneline "$ANCHOR"..HEAD
+ANCHOR=$(sed -n 's/^captured_at: *//p' ".branch-notes/$BRANCH.md" 2>/dev/null)
+[ -n "$ANCHOR" ] && git log --oneline "$ANCHOR"..HEAD
 ```
 
 If that returns commits, the note is behind the branch. Append and re-anchor rather than assuming it's current.
+
+`paths` and `symbols` must be written **now**, not derived later. Once a branch is squash-merged and deleted, the commits do not survive verbatim and the branch-to-files mapping is unrecoverable — after which finding this note means grepping prose for a filename someone happened to type, and "moved the limiter inside dispatch" is invisible to a search for `src/client.py`.
+
+### 5b. Turn the survival answer into an assertion
+
+The sentence under *Must survive a conflict* is what a human reads. The `assert` entry is the same claim written so a command can falsify it, and **writing it is this skill's job**. Asking anyone to type `contains src/client.py:dispatch RateLimiter` by hand ends adoption in a week.
+
+Three predicates, no others:
+
+```
+exists   src/client.py:dispatch
+contains src/client.py:dispatch RateLimiter
+absent   RetryDecorator
+```
+
+Each is one `git grep`. Take the anchor from `symbols`, which step 2 already computed, and put the user's own words in `why:` — that sentence is what makes the translation auditable when both land in the PR diff.
+
+Verify it holds before writing it:
+
+```bash
+git grep -qn '\bdispatch\b' -- src/client.py && git grep -qn 'RateLimiter' -- src/client.py
+```
+
+An assertion that is already false at capture time is a mistranslation, not a finding. Fix the predicate; never record a violation against your own branch.
+
+Not every branch has one. If the honest answer to the survival question is "nothing in particular", write the prose and skip the block. A fabricated assertion is worse than none, because something will check it.
+
+When a later round legitimately moves an anchor — function renamed, module split — append a new entry and leave the old one alone:
+
+```yaml
+  - id: a2
+    added: 2026-09-02
+    supersedes: a1
+    check: contains src/transport.py:send RateLimiter
+    why: dispatch moved to transport.py; the requirement is unchanged
+```
+
+Same rule as the rest of the file. Never edit `a1`: which claim was superseded, when, and why is exactly the kind of record this note exists to keep.
 
 ### 6. Re-run after review
 

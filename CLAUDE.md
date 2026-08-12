@@ -79,7 +79,8 @@ Most of these were bugs before they were conventions.
 - **`ours`/`theirs` are operation-dependent.** During a rebase they're inverted relative to a merge: `ours` is the upstream, `theirs` is your own commit being replayed. Any skill touching conflicts states which operation it's in before naming a side.
 - **`git status --porcelain`, not `git diff --name-only HEAD`**, to see what a worktree is doing right now. A file an agent created and never `git add`ed is untracked, and a diff against `HEAD` does not list it — which is most of what a few minutes of agent work looks like. The diff form silently reports a busy worktree as clean.
 - Prefer `git ls-files` over `find` — it respects `.gitignore` for free.
-- BSD `sed` (macOS) has no `\b`. Use `perl -pe` for word-boundary replacements in tooling, or the substitution silently does nothing.
+- BSD `sed` (macOS) has no `\b`. Use `perl -pe` for word-boundary replacements in tooling, or the substitution silently does nothing. **`git grep` does support `\b`** on macOS — verified — which is what the §7.1 assertion predicates rely on.
+- **Assertions evaluate anchor-first.** Resolve the anchor, *then* the predicate. Anchor gone means `unresolvable`, never `violated` (I15) — every legitimate refactor moves an anchor, and a rename reported as a failure gets the whole check switched off.
 
 ## Arguments
 

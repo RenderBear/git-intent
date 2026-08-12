@@ -237,15 +237,42 @@ This frequently cannot be done fully, and pretending otherwise is worse than adm
 Fixtures diverge. Migrations conflict. The code most likely to produce an ugly conflict is the
 code least likely to have tests.
 
+**Both sides' `assert` blocks are the cheap half of this, and they run where the tests don't.**
+Each entry is what that branch's author said had to survive a conflict — which is the exact
+question in front of you — written so one command can falsify it. Collect the live assertions
+from both notes (an entry named by another's `supersedes:` is history, not a requirement) and
+evaluate each against the **composed** content, anchor first:
+
+```bash
+git grep -qn '\bdispatch\b' -- src/client.py   || echo unresolvable   # anchor
+git grep -qn 'RateLimiter'  -- src/client.py   || echo violated       # predicate
+```
+
+An assertion that held on its own side and fails against your composition is the strongest
+finding this skill produces: it is that branch's author, in writing, saying the thing you just
+did was not allowed.
+
+Unresolvable has to stay separate from violated, and here more than anywhere — relocating code
+*is* frequently the composition, so anchors move constantly and calling that a violation would
+turn the section into noise on its first run. Report it as a question and name the assertion that
+needs re-anchoring once the resolution lands.
+
+Where a side has no note, or a note with no assertions, say that rather than reporting zero
+violations. Zero checks and zero failures look identical in a summary and mean opposite things.
+
 ```
 VERIFIED
   ours/test_client.py        14 passed
   theirs/test_dispatcher.py   9 passed
+  assert a1 (ours)           holds — RateLimiter still present in client.py
 
 NOT VERIFIED
   Retry-under-limit behavior. Neither suite covers exhaustion; the composed
   limiter changes what happens there. This is the case both sides were most
   likely to get wrong and it is currently untested.
+  assert b2 (theirs)         unresolvable — this resolution moved dispatch into
+                             transport.py; re-anchor after applying
+  theirs                     no assertions in the note — 0 checked, not 0 failed
 ```
 
 An unverifiable claim reported as unverified is a useful output. An unverifiable claim reported
