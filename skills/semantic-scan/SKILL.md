@@ -1,6 +1,6 @@
 ---
 name: semantic-scan
-description: Find the conflicts git never reported — one branch changes a function's contract while another adds or modifies a caller depending on the old behavior, in different files, with no conflict markers, merging green and failing later. Also ranks a whole repo by exposure, so long-lived branches carrying accumulated semantic risk surface before anyone tries to land them. Use this after a merge that resolved suspiciously cleanly, before a release cut, before landing a long-running branch, when tests pass but something feels off after integrating, or when the user asks what a merge might have broken silently.
+description: Find the conflicts git never reported — one branch changes a function's contract while another adds or modifies a caller depending on the old behavior, in different files, with no conflict markers, merging green and failing later. Can also rank branch pairs by exposure as a triage step, deciding which long-lived branch is worth the expensive analysis. Use this after a merge that resolved suspiciously cleanly, before a release cut, before landing a long-running branch, when tests pass but something feels off after integrating, or when the user asks what a merge might have broken silently.
 ---
 
 # semantic-scan
@@ -59,7 +59,7 @@ Score each pair on:
 - **Centrality** — how many other files import the touched ones, from the baseline cache at `$(git rev-parse --git-common-dir)/intent/`. Quote that cache's `Generated at:` SHA in the exposure report: centrality drives the ranking, nobody can inspect a file inside `.git/`, and a score computed from a stale import graph is wrong in a way that reads as authoritative.
 - **Staleness of the last check** — the tip SHAs at which this pair was last analyzed, if ever. Never-checked outranks checked-at-the-current-tips at equal risk. A pair analyzed yesterday whose side has moved since is stale, and a timestamp cannot tell you that.
 
-The last one is what turns this from a scan into a monitor. Record it back into the cache after each analysis.
+Record what you examined back into the cache, keyed on the tips you saw, so a later run ranks a pair it has already checked below one it hasn't. This is triage you run when you're about to spend on analysis, or to answer "which long-lived branch is riskiest" — not a monitor kept continuously current.
 
 ```
 EXPOSURE — 12 live branches, 31 pairs sharing an integration target

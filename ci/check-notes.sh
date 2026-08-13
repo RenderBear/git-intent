@@ -65,7 +65,7 @@ fi
 
 for note in $NOTES; do
   [ -f "$note" ] || continue
-  case "$note" in */_archive/*) continue ;; esac   # frozen; see SPEC 8.3
+  case "$note" in */_archive/*) continue ;; esac   # frozen; see SPEC 7.3
 
   echo "$note"
 
@@ -84,16 +84,27 @@ for note in $NOTES; do
   dated=$(grep -c '^- 20[0-9][0-9]-' "$note" || true)
   [ "$dated" -eq 0 ] && echo "  ~ stub: no dated entries under 'Why this shape'"
 
-  # --- assertions (SPEC 8.1) --------------------------------------------
+  # --- assertions (SPEC 7.1) --------------------------------------------
+  # `id:` is optional — present only when an entry will be superseded. Entries
+  # without one are labelled a1, a2… by position, so a bare `- check:` is still
+  # checked. Skipping id-less entries would silently check nothing.
   parsed=$(awk '
-    /^assert:/            { a = 1; next }
-    /^[a-zA-Z_]+:/        { a = 0 }
-    a && /^ *- id: */     { sub(/^ *- id: */, ""); id = $0; next }
-    a && /^ *supersedes:/ { sub(/^ *supersedes: */, ""); print "SUP\t" $0; next }
-    a && /^ *check: */    { sub(/^ *check: */, ""); print "CHK\t" id "\t" $0; next }
+    /^assert:/   { a = 1; n = 0; id = ""; next }
+    /^---/       { a = 0 }
+    /^[A-Za-z_]/ { a = 0 }
+    a && /^ *- / { id = ""; n++ }
+    a {
+      line = $0
+      sub(/^ *- */, "", line); sub(/^ */, "", line)
+      if      (line ~ /^id:/)         { sub(/^id: */, "", line); id = line }
+      else if (line ~ /^supersedes:/) { sub(/^supersedes: */, "", line); print "SUP\t" line }
+      else if (line ~ /^check:/)      { sub(/^check: */, "", line); lab = (id != "" ? id : "a" n); print "CHK\t" lab "\t" line }
+      else if (line ~ /^why:/)        { sub(/^why: */, "", line);   lab = (id != "" ? id : "a" n); print "WHY\t" lab "\t" line }
+    }
   ' "$note")
 
   superseded=$(printf '%s\n' "$parsed" | awk -F'\t' '$1=="SUP" {print $2}')
+  whys=$(printf '%s\n' "$parsed" | awk -F'\t' '$1=="WHY" {print $2"\t"$3}')
 
   printf '%s\n' "$parsed" | awk -F'\t' '$1=="CHK" {print $2"\t"$3}' | while IFS="$(printf '\t')" read -r id expr; do
     [ -z "$id" ] && continue
@@ -103,11 +114,11 @@ for note in $NOTES; do
     # shellcheck disable=SC2086
     verdict=$(evaluate $expr)
     CHECKED=$((CHECKED + 1))
+    why=$(printf '%s\n' "$whys" | awk -F'\t' -v k="$id" '$1==k {print $2; exit}')
     case "$verdict" in
       holds)        echo "  ok $id  $expr" ;;
       violated)     echo "  FAIL $id  $expr"
-                    sed -n "/- id: $id\$/,/^ *- id:/p" "$note" \
-                      | sed -n 's/^ *why: */       why: /p'
+                    [ -n "$why" ] && echo "       why: $why"
                     echo "$id" >> "${TMPDIR:-/tmp}/gi-violations.$$" ;;
       unresolvable) echo "  ?? $id  $expr"
                     echo "       anchor no longer resolves — supersede this assertion if the move was intended" ;;

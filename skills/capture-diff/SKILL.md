@@ -182,6 +182,8 @@ If that returns commits, the note is behind the branch. Append and re-anchor rat
 
 The sentence under *Must survive a conflict* is what a human reads. The `assert` entry is the same claim written so a command can falsify it, and **writing it is this skill's job**. Asking anyone to type `contains src/client.py:dispatch RateLimiter` by hand ends adoption in a week.
 
+It is a tripwire, not a test — a weak proxy, one grep for a name in a file, that occasionally catches a real regression for almost no cost. Don't labor over it and don't trust it to prove behavior; that is what the suite is for. The prose sentence is the real record, and the tripwire is a bonus that costs one line.
+
 Three predicates, no others:
 
 ```

@@ -6,9 +6,9 @@ half of the system depends on `branch.landed`, which is a button on a web page.
 
 CI is the only transport that reaches that tab.
 
-It works because the falsifiability layer is mechanical by construction. Resolving an assertion's
-anchor, comparing `captured_at` against a tip, and asking whether a note has dated entries are
-`git grep` and `git log`. No model, therefore no session.
+It works because these checks are mechanical. Resolving an assertion's anchor, comparing
+`captured_at` against a tip, and asking whether a note has dated entries are `git grep` and
+`git log`. No model, therefore no session.
 
 ## What's here
 
@@ -71,13 +71,13 @@ on. Assertions are testimony that happens to be falsifiable — not rules.
 Only **live** notes, and on a pull request only the notes that PR touches.
 
 `_archive/` is skipped entirely, and this is not an optimization. Archived notes are frozen
-(SPEC 8.3) and cannot be superseded, so the first legitimate rename after a branch lands would
+(SPEC 7.3) and cannot be superseded, so the first legitimate rename after a branch lands would
 put its assertions permanently in violation. A check that accumulates permanent failures is a
 check nobody reads.
 
 ## Convergence
 
-The `push` job **reports** what SPEC 4.2's convergence pass would repair — notes whose branches
+The `push` job **reports** what SPEC 3.8's convergence pass would repair — notes whose branches
 are gone, waiting to be archived. It does not archive them. Archiving is a commit to the
 integration branch, and nothing in CI has a mandate to make one; a human runs `/reconcile-notes`
 having seen the report.

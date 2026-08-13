@@ -6,7 +6,7 @@ Git workflow skills for agents — context-aware actions across the integration 
 
 This repo is a collection of agent skills, not an application. Each skill lives under `skills/<name>/` as a `SKILL.md` file with optional `references/` support material.
 
-[`SPEC.md`](SPEC.md) is the design of record: the eight lifecycle events, the three gate classes, the state model, and the invariants. Read it before changing how skills interact — the individual `SKILL.md` files implement it and shouldn't contradict it.
+[`SPEC.md`](SPEC.md) is the design of record: the state model, when each skill runs, the three gate classes, the transports, and the invariants. Read it before changing how skills interact — the individual `SKILL.md` files implement it and shouldn't contradict it.
 
 The split is deliberate. `README.md` is for someone deciding whether to install this and how to use it — payoff, install, skills, arguments, paths. `SPEC.md` is for someone changing how it works — the state taxonomy, the gates, the invariants, the decisions and what would reopen them. Design reasoning that drifts into the README pushes the payoff below the fold; practical usage that drifts into the SPEC makes it a second README. Keep them apart.
 
@@ -33,7 +33,7 @@ skills/<name>/
 
 hooks/                    # optional transport: post-checkout, post-merge
 ci/                       # optional transport: check-notes.sh + a workflow example
-SPEC.md                   # lifecycle, predicates, gates, invariants
+SPEC.md                   # state model, when skills run, gates, transports, invariants
 AGENTS.example.md         # the block users copy into their own repo
 ```
 

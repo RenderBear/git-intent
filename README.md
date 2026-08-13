@@ -1,4 +1,4 @@
-# git-intent: An intent layer for collaborative / multi-agent workflows
+# git-intent: An intent layer for multi-agent work
 
 git-intent **infers** what it can from what git already holds, **records** the small part that can't be inferred, and **hands both to whoever acts next** — a reviewer checking code against a spec, an agent resolving a conflict, someone opening a file they didn't write.
 
@@ -74,7 +74,7 @@ Nothing else is required. Every skill works on a repo that has never heard of th
 
 ### Recommended, per repo
 
-Two things are worth turning on in a repo where several people or agents are working in parallel. Both are opt-in and neither is needed for any skill to function.
+Two things are worth turning on in a repo where several agents are working. Both are opt-in and neither is needed for any skill to function.
 
 **Live capture.** Copy the block from [`AGENTS.example.md`](AGENTS.example.md) into that repo's `CLAUDE.md`, `AGENTS.md`, or `.cursorrules`. This is what makes `capture-diff` record the approach you abandoned at 11am instead of losing it by Thursday — a decision being dropped leaves no git state, so no hook can catch it and no command can be scheduled for it. Only something already in the session can.
 
@@ -170,7 +170,7 @@ Reasoning about *why* at a scope larger than a branch — the standing constrain
 
 ## Design
 
-The reasoning behind all of this — the state model, the lifecycle events, the gate classes, the invariants, and what would reopen each decision — is in [`SPEC.md`](SPEC.md).
+The reasoning behind all of this — the state model, when each skill runs, the gate classes, the transports, and the invariants — is in [`SPEC.md`](SPEC.md).
 
 ### What gets read
 
@@ -182,7 +182,7 @@ Moving merge policy into `.gitattributes` closes most of this: it's a file revie
 
 ```
 git-intent/
-├── SPEC.md                the state model, lifecycle, predicates, gates, invariants
+├── SPEC.md                the state model, when skills run, gates, transports, invariants
 ├── AGENTS.example.md      copy into your repo to enable live capture
 ├── hooks/                 optional git hooks for two of the moments
 ├── ci/                    optional pull-request checks — script + workflow example

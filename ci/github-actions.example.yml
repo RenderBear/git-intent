@@ -34,7 +34,7 @@ jobs:
           fi
           sh ci/check-notes.sh $NOTES
 
-      # Convergence (SPEC 4.2) is reported, never applied. Archiving is a
+      # Convergence (SPEC 3.8) is reported, never applied. Archiving is a
       # commit to the integration branch, and nothing here has a mandate to
       # make one — a human runs /reconcile-notes having seen this.
       - name: Report what convergence would repair
