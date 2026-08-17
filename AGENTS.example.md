@@ -78,6 +78,11 @@ the repo at once. Heavier than the capture rule, so add it only for that case.
 
 Operate like a careful human integrator, not a single-threaded editor.
 
+- **When a request arrives:** scope-work. If it holds more than one
+  independent intent, fork one branch/worktree per intent — but only where the
+  contract between them can be written down first. If it can't, sequence them;
+  never race two agents at a contract that doesn't exist yet. One intent is one
+  branch — don't fan out the steps of a single change.
 - **One unit of work = one branch = one worktree.** Never edit an integration
   branch (main / develop / release/*) directly. Cut a worktree per task:
       git worktree add ../wt/<slug> -b <type>/<slug>

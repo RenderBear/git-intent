@@ -10,10 +10,11 @@ This repo is a collection of agent skills, not an application. Each skill lives 
 
 The split is deliberate. `README.md` is for someone deciding whether to install this and how to use it — payoff, install, skills, arguments, paths. `SPEC.md` is for someone changing how it works — the state taxonomy, the gates, the invariants, the decisions and what would reopen them. Design reasoning that drifts into the README pushes the payoff below the fold; practical usage that drifts into the SPEC makes it a second README. Keep them apart.
 
-Six core skills, one per moment of a branch's life, plus infrastructure and two optional utilities.
+Seven core skills — one before a branch exists, six across a branch's life — plus infrastructure and two optional utilities.
 
 | Skill | Purpose |
 |---|---|
+| `scope-work` | Arriving: scope an incoming request into independently-buildable units, decide what forks in parallel vs sequences, freeze the contract at each cut. Moment 0, before any branch |
 | `collision-scan` | Starting: find in-flight branches and worktrees (incl. uncommitted) working in the same code |
 | `capture-diff` | Working: author-side capture into `.branch-notes/<branch>.md` — what changed, why, and the invariant that must survive later work |
 | `review-diff` | Ready: PR/branch summaries for reviewers — risk-ordered or against a ticket; reports note drift and evaluates invariants |

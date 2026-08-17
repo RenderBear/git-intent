@@ -138,12 +138,14 @@ Nothing here dispatches. There is no event loop; a skill runs because a human ty
 an agent rule fired it, or a hook printed a suggestion (§5). What follows is the situation each
 skill answers, not a lifecycle it reacts to.
 
-The six core skills map one-to-one onto the moments of the loop. Two more (`onboard-file`,
-`bisect-report`) are useful but sit off the loop; they ship as optional utilities. `baseline-scan`
-is infrastructure the others call, not a moment of its own (§6).
+Seven core skills map onto the moments of the loop — one before a branch exists (`scope-work`),
+six across its life. Two more (`onboard-file`, `bisect-report`) are useful but sit off the loop;
+they ship as optional utilities. `baseline-scan` is infrastructure the others call, not a moment of
+its own (§6).
 
 | Situation | Skill | Gate |
 |---|---|---|
+| A request arrives — one unit of work or several? | `scope-work` | propose |
 | Starting a branch — who else is in this code? | `collision-scan` | auto |
 | A decision was made or an approach dropped | `capture-diff` | append |
 | Preparing a branch for review | `capture-diff`, `review-diff` | append |
@@ -160,6 +162,29 @@ Most of these are answerable at any later time from repository state, so missing
 a delay, not the answer (§3.7). Two are not: a conflict's resolution window closes once resolved,
 and an uncommitted worktree evaporates within the hour. One thing cannot be recovered at all — a
 decision that was never written down.
+
+### 3.0 A request arrives — `scope-work`
+
+Before a branch exists, the question is whether the request is one unit of work or several, and if
+several, which can be built independently. The unit of parallelism is the **independently-buildable
+change**, not the list item or the sentence — two units parallelize only if each can be built
+against a fixed interface without seeing the other.
+
+This is the one skill that reasons about work that hasn't happened yet, so it runs on *predicted*
+surface (inferred from the request and the baseline), not a diff. That is a real limit and the
+output states it: the actual overlap and contract checks run once each fork has code, via
+`collision-scan` and the pre-land gate (§3.7a). What `scope-work` adds up front is the decision
+those skills can't make after the fact — the **contract-cut rule**: two units may fork in
+parallel only if the contract between them can be *written down now*. If it can't, they are
+entangled, and forking them schedules a `semantic-scan` finding for next week; sequence instead.
+Where the contract is statable, it is frozen as an artifact on the base both forks are cut from,
+so each codes against a fixed interface rather than against a moving sibling.
+
+The gate is `propose`: the skill emits the plan, the worktrees, the frozen contracts, and a brief
+per unit, but does not spawn the forks. At automation level `full` a `--dispatch` hands the plan
+to the runtime to spawn one agent per parallel unit; a plan that violates the contract-cut rule
+drops back to proposing regardless. `scope-work` sets the fork up; the per-branch loop
+(collision, capture, pre-land) keeps it safe.
 
 ### 3.1 Starting a branch — `collision-scan`
 
@@ -409,12 +434,14 @@ re-derives everything from git at call time.
 
 ## 6. Skill contracts
 
-Six core skills, one per moment of the loop. `baseline-scan` sits below them as the shared cache
-producer they all call; it stays invocable (`--refresh`, `--print`) but is infrastructure, not a
-moment. `onboard-file` and `bisect-report` are off-loop utilities, shipped optionally.
+Seven core skills — `scope-work` before a branch exists, six across the loop. `baseline-scan`
+sits below them as the shared cache producer they all call; it stays invocable (`--refresh`,
+`--print`) but is infrastructure, not a moment. `onboard-file` and `bisect-report` are off-loop
+utilities, shipped optionally.
 
 | Skill | Reads | Writes | Gate |
 |---|---|---|---|
+| `scope-work` | request, cache; predicted surface (no diff) | a plan; contract *proposals* (source stubs proposed, invariants via `capture-diff`) | propose (`--dispatch` → full) |
 | `collision-scan` | git, worktrees incl. uncommitted, others' notes, cache | cache (path sets) | auto |
 | `capture-diff` | git, cache, own note | `.branch-notes/<branch>.md` | append |
 | `review-diff` | git, own note, cache, policy | — | auto |

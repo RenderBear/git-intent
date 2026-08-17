@@ -92,10 +92,11 @@ They print to stderr and exit 0 — a hook can't run an agent, so these detect t
 
 ## The skills
 
-Six skills, one per moment of a branch's life, from cutting it to landing it. Everything is git-native; the intent layer is the small committed residue they leave behind for the next actor to read.
+Seven skills — one before a branch exists, six from cutting it to landing it. Everything is git-native; the intent layer is the small committed residue they leave behind for the next actor to read.
 
 | | |
 |---|---|
+| [`scope-work`](skills/scope-work/SKILL.md) | **Arriving.** Before any branch exists: is this request one unit of work or several independently-buildable ones? If several, which fork in parallel, which must sequence, and the contract each fork codes against. Won't fan out the steps of one unit, and won't fork two it can't hand a written contract |
 | [`collision-scan`](skills/collision-scan/SKILL.md) | **Starting.** Who else is working in your code and what they're trying to do, while it's still cheap to talk. Local worktrees first — including uncommitted work no remote scan sees — then live remote branches |
 | [`capture-diff`](skills/capture-diff/SKILL.md) | **Working.** What a branch changed and why, into `.branch-notes/<branch>.md` — the abandoned approach, the requirement, and the invariant that must survive later work. The one skill that writes testimony. Live during the work, or reconstructed on demand |
 | [`review-diff`](skills/review-diff/SKILL.md) | **Ready.** Risk-ordered summary for reviewers — or, given a ticket, a requirement-by-requirement check. Also reports when the note is missing, a stub, or behind the branch |
@@ -118,6 +119,7 @@ Every argument has a derived default, and every skill states which default it us
 
 | Skill | Default | Accepts |
 |---|---|---|
+| `scope-work` | plan only, don't dispatch | a request string · `--plan-only` · `--dispatch` (only under `full`) |
 | `collision-scan` | worktrees, then 30 live branches, 10 analyzed | a target · `--worktrees` · `--live N\|all` · `--limit N` · `--count` |
 | `capture-diff` | measures against the integration branch | a target branch · `--against <ref>` |
 | `review-diff` | risk-ordered summary vs the integration branch | a target · requirement text |
