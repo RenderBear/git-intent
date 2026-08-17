@@ -116,9 +116,9 @@ The note stops being perishable (nothing more will be appended), stops being bra
 now lives on the integration branch), and changes retrieval key — nobody remembers `sam/fix-2`
 in a year, so archived notes are found by the paths in their frontmatter, not by branch name.
 
-Archived notes feed the changelog (`reconcile-notes --notes`), `onboard-file`, and rung 2 above.
-Their invariants stay live and gate every later landing (§7.1.1, §7.3). They are the long-lived
-half of the system and the reason capture is worth doing.
+Archived notes feed the changelog (`reconcile-notes --notes`) and rung 2 above. Their invariants
+stay live and gate every later landing (§7.1.1, §7.3). They are the long-lived half of the system
+and the reason capture is worth doing.
 
 ### 2.5 Policy — where git already reads it
 
@@ -139,9 +139,9 @@ an agent rule fired it, or a hook printed a suggestion (§5). What follows is th
 skill answers, not a lifecycle it reacts to.
 
 Seven core skills map onto the moments of the loop — one before a branch exists (`scope-work`),
-six across its life. Two more (`onboard-file`, `bisect-report`) are useful but sit off the loop;
-they ship as optional utilities. `baseline-scan` is infrastructure the others call, not a moment of
-its own (§6).
+six across its life. `baseline-scan` is infrastructure the others call, not a moment of its own
+(§6). Nothing else ships in the layer: general git utilities that don't touch the notes,
+invariants, or cross-branch coordination are deliberately out of scope.
 
 | Situation | Skill | Gate |
 |---|---|---|
@@ -156,7 +156,6 @@ its own (§6).
 | A clean merge you don't trust | `semantic-scan` | auto |
 | A branch just landed | `reconcile-notes` | archive / confirm |
 | Cutting a release | `reconcile-notes --notes` | auto |
-| Why is this file like this? / What broke? | `onboard-file`, `bisect-report` | auto / runs |
 
 Most of these are answerable at any later time from repository state, so missing the moment costs
 a delay, not the answer (§3.7). Two are not: a conflict's resolution window closes once resolved,
@@ -375,11 +374,10 @@ loop is the pull request.
 
 An append is a *claim* and is cheap to be wrong about; a propose is a *change* and is not.
 
-Two skills sit outside this and say so where they act. `bisect-report` executes, because
-bisecting can't be done otherwise. `reconcile-notes` archives landed notes itself — a `git mv`
-inside `.branch-notes/`, staged not committed, undo printed — because archiving is the ~99% path
-after every landing and a proposal nobody runs is how the folder rots. Deletion keeps its gate:
-it destroys reasoning that exists nowhere else.
+One skill sits outside this and says so where it acts. `reconcile-notes` archives landed notes
+itself — a `git mv` inside `.branch-notes/`, staged not committed, undo printed — because
+archiving is the ~99% path after every landing and a proposal nobody runs is how the folder rots.
+Deletion keeps its gate: it destroys reasoning that exists nowhere else.
 
 ### 4.1 Automation level
 
@@ -436,8 +434,7 @@ re-derives everything from git at call time.
 
 Seven core skills — `scope-work` before a branch exists, six across the loop. `baseline-scan`
 sits below them as the shared cache producer they all call; it stays invocable (`--refresh`,
-`--print`) but is infrastructure, not a moment. `onboard-file` and `bisect-report` are off-loop
-utilities, shipped optionally.
+`--print`) but is infrastructure, not a moment. Nothing else ships in the layer.
 
 | Skill | Reads | Writes | Gate |
 |---|---|---|---|
@@ -449,8 +446,6 @@ utilities, shipped optionally.
 | `resolve-conflicts` | git stages, both sides via the §2.3 ladder, policy | tree only under `--auto`/`full` | propose (`--auto` → full) |
 | `reconcile-notes` | git, notes, archive, cache anchor | archive moves, cache invalidation, changelog | archive / confirm |
 | *infra:* `baseline-scan` | git, CI config, `.gitattributes`, `CODEOWNERS` | cache | auto |
-| *optional:* `onboard-file` | git, cache, archive | — | auto |
-| *optional:* `bisect-report` | git, runs the suite | — | *runs* |
 
 `semantic-scan` absorbs the former `merge-order` (as `--order`, §3.7b) and the pre-land invariant
 gate (§3.7a); `reconcile-notes` absorbs the former `release-notes` (as `--notes`). Both folds are

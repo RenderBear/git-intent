@@ -230,7 +230,7 @@ and `fix lint` are not events in a reader's life.
 changes on public interfaces, removed config keys, changed defaults, migrations. A breaking change
 missing from the notes is the one failure of this document that costs someone their evening. Pull
 the *why* from the archived note only where it changes what the reader should do; the abandoned
-approach that led there is `onboard-file`'s, not the changelog's.
+approach that led there stays in the branch note, out of the changelog.
 
 `--audience` (`integrators`, `on-call`, `users`) changes what gets promoted, not just the tone: a
 library changelog leads with breaking changes, an internal service's leads with what on-call needs
@@ -283,8 +283,8 @@ practical, archiving everything and deleting nothing is a defensible policy — 
 delete list is short, which it usually is.
 
 **Archived notes are inputs, not sediment.** `--notes` reads them for why each change happened;
-`onboard-file` reads them for why a file is shaped this way; `semantic-scan --pre-land` reads
-their invariants to guard against later landings. The archive is the reason capture is worth doing
+`semantic-scan --pre-land` reads their invariants to guard against later landings; rung 2 of a
+conflict resolution reads them for the incoming side's intent. The archive is the reason capture is worth doing
 at all, and treating it as a bin to be emptied defeats the system.
 
 **Never write policy.** A `CODEOWNERS` or `.gitattributes` change spotted here is reported to a

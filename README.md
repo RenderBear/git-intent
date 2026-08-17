@@ -29,17 +29,17 @@ Git is right. The files barely overlap, the text merges, both test suites pass �
 Every skill here is a different answer to *when do you find out*:
 
 ```
-  day 1              day 3            day 12           day 14         + 3 days
-    │                  │                │                │                │
-    │  both will       │  "the limiter  │  merges        │  retries       │  incident
-    │  touch           │   must wrap    │  clean         │  unmetered     │
-    │  dispatch()      │   retries"     │                │  in prod       │
-    ▼                  ▼                ▼                ▼                ▼
- collision-scan   capture-diff    resolve-conflicts  semantic-scan     bisect-report
-    ~1 min          ~30 sec          only if git       ~2 min           half a day,
-  before you      the one line       conflicts —      the only thing    after someone
-  start           nothing else       it didn't        that catches      notices
-                  can recover        here             this one
+  day 0            day 1            day 3          day 12         day 14        without day 14
+    │                │                │              │              │              │
+    │  one intent    │  both will     │ "the limiter │  merges      │  retries     │  prod
+    │  or two?       │  touch         │  must wrap   │  clean       │  unmetered   │  incident,
+    │                │  dispatch()    │  retries"    │              │  caught      │  ~half a day
+    ▼                ▼                ▼              ▼              ▼              ▼
+ scope-work      collision-scan   capture-diff   resolve-       semantic-scan   (averted)
+  ~10 sec          ~1 min           ~30 sec        conflicts      ~2 min — the
+ before you      before you        the one line   only if git    only thing
+ fork or not     start             nothing else   conflicts      that catches
+                                   can recover     here           this one
 ```
 
 `capture-diff` is the only step that writes anything, and the only one that can't be run later — by day 12 nobody remembers that the limiter was deliberately placed inside `dispatch()` rather than decorating the retry loop, or that the decorator was tried first and double-counted.
@@ -104,12 +104,13 @@ Seven skills — one before a branch exists, six from cutting it to landing it. 
 | [`resolve-conflicts`](skills/resolve-conflicts/SKILL.md) | **Conflict.** Reconstructs what each side meant, composes both where compatible, verifies with tests. Proposes by default; `--auto` applies and verifies, stopping only on a contradiction, a broken invariant, or a red test. Merge, rebase, cherry-pick, revert, stash |
 | [`reconcile-notes`](skills/reconcile-notes/SKILL.md) | **Landed.** Archives the notes of branches that shipped, keeps their invariants live against later landings, invalidates the baseline, reports what the merge made false — and `--notes` cuts the changelog |
 
-Below the loop, two supporting roles:
+Below the loop, one supporting role:
 
 | | |
 |---|---|
-| [`baseline-scan`](skills/baseline-scan/SKILL.md) | *Infrastructure.* What the repo is, computed — structure, hot and dormant areas, ownership, which files change together. The shared cache the six read; regenerates in seconds. Rarely run by hand |
-| [`onboard-file`](skills/onboard-file/SKILL.md) · [`bisect-report`](skills/bisect-report/SKILL.md) | *Optional, off-loop.* Why a file is shaped like this and who to ask; and the commit behind a regression with its mechanism. Useful, but not part of branch → landing — install if you want them |
+| [`baseline-scan`](skills/baseline-scan/SKILL.md) | *Infrastructure.* What the repo is, computed — structure, hot and dormant areas, ownership, which files change together. The shared cache the loop reads; regenerates in seconds. Rarely run by hand |
+
+Every skill here touches the same substrate — the notes, the invariants, the coordination across parallel branches. General git utilities that don't (a file's blame story, bisecting a regression) are deliberately out of scope; they're better as their own tools.
 
 `collision-scan` and `semantic-scan`'s analysis look like neighbours and aren't. The first compares work whose paths **intersect** — will these collide when they land. The second's analysis compares work whose paths are **disjoint** — did they break each other without colliding. Each hands off by name when it sees the other's population. (`semantic-scan`'s `--order` and pre-land gate sit above that line and use both — see its SKILL.)
 
@@ -127,16 +128,12 @@ Every argument has a derived default, and every skill states which default it us
 | `resolve-conflicts` | every unmerged path, proposed | a path · `--other <branch>` · `--auto` |
 | `reconcile-notes` | local ∩ remote, archive only | `--remote` · `--local` · `--delete` · `--dry-run` · `--notes [range] [--audience <role>]` |
 | `baseline-scan` *(infra)* | regenerates the cache if stale | `--refresh` · `--print` · `--window 6m` |
-| `onboard-file` *(optional)* | asks for a path | a path · `:88` · `:88-104` · a symbol |
-| `bisect-report` *(optional)* | asks for a check command | a check command · `--good` · `--bad` · `--runs N` |
 
 **Liveness, not recency.** `collision-scan` and `semantic-scan --order` both need "which branches count", and a date window is the wrong filter — it drops a nine-day-old branch that rewrites your function and keeps one that got a README typo fix this morning. Both rank instead, on commit recency, commits ahead, divergence behind, and whether the branch has already landed, then take the top `--live N`. The cut is a budget: what falls below it is counted, and anything below it that shares a path with you is named anyway.
 
 **`--worktrees` and `--local` are different things** and deliberately not the same word. `collision-scan --worktrees` means parallel agents on this machine, including uncommitted work no remote scan can see. `reconcile-notes --local` means classify notes against local branches only — which is the dangerous mode, since a fresh clone has one local branch and would sweep almost everything.
 
 **`semantic-scan --exposure`** ranks every live branch pair by accumulated risk — divergence, fork-point age, disjoint surface, interface weight, and how long since that pair was last checked — without reading a diff. It's what makes the skill usable on a repo with a six-week feature branch and thirty open PRs: rank in seconds, analyze the top three.
-
-**Two skills can't start on their own**, and asking is right rather than a gap. `bisect-report` needs a reproduction because only the person seeing the bug knows what reproduces it, and a bisect against a guessed test spends an hour confidently blaming a random commit. `onboard-file` needs a path because its output is shaped around one file's decisions, and averaging that over a directory produces nothing actionable.
 
 A bare positional is the target branch everywhere except `semantic-scan --order`, where positionals are branch names and the target moves to `--target`. Passing requirement text to `review-diff` switches it from a risk-ordered summary to a clause-by-clause check. `reconcile-notes --notes --audience` takes `integrators`, `on-call`, or `users`, and changes what gets promoted rather than just the tone — a library changelog leads with breaking changes, an internal service's leads with what on-call needs at 3am.
 

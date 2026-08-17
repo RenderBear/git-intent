@@ -21,8 +21,7 @@ Seven core skills — one before a branch exists, six across a branch's life —
 | `semantic-scan` | Landing: clean merges that broke behavior; `--order` for a queue; the `--pre-land` invariant gate |
 | `resolve-conflicts` | Conflict: merge/rebase/cherry-pick/revert — reconstruct intent, compose, verify. Proposes; `--auto` applies |
 | `reconcile-notes` | Landed: archive landed notes (invariants stay live), invalidate the baseline, report what the merge made false; `--notes` for the changelog |
-| `baseline-scan` | *Infrastructure* — compute what the repo is into `.git/intent/base.md`; the shared cache the six read |
-| `onboard-file` · `bisect-report` | *Optional, off-loop* — a file's history and blame; bisecting a regression to its mechanism |
+| `baseline-scan` | *Infrastructure* — compute what the repo is into `.git/intent/base.md`; the shared cache the loop reads |
 
 `semantic-scan` absorbed the former `merge-order` (`--order`) and the pre-land invariant gate; `reconcile-notes` absorbed the former `release-notes` (`--notes`). Both folds are because the absorbed skill ran at the same moment on the same substrate as its host — see [`SPEC.md`](SPEC.md) §6.
 
@@ -83,11 +82,11 @@ Most of these were bugs before they were conventions.
 - **`git status --porcelain`, not `git diff --name-only HEAD`**, to see what a worktree is doing right now. A file an agent created and never `git add`ed is untracked, and a diff against `HEAD` does not list it — which is most of what a few minutes of agent work looks like. The diff form silently reports a busy worktree as clean.
 - Prefer `git ls-files` over `find` — it respects `.gitignore` for free.
 - BSD `sed` (macOS) has no `\b`. Use `perl -pe` for word-boundary replacements in tooling, or the substitution silently does nothing. **`git grep` does support `\b`** on macOS — verified — which is what the §7.1 assertion predicates rely on.
-- **Assertions evaluate anchor-first.** Resolve the anchor, *then* the predicate. Anchor gone means `unresolvable`, never `violated` (I15) — every legitimate refactor moves an anchor, and a rename reported as a failure gets the whole check switched off.
+- **Assertions evaluate anchor-first.** Resolve the anchor, *then* the predicate. Anchor gone means `unresolvable`, never `violated` (I13) — every legitimate refactor moves an anchor, and a rename reported as a failure gets the whole check switched off (I16).
 
 ## Arguments
 
-Every skill has an `## Invocation` block near the top listing what it accepts, and every argument has a derived default. Two exceptions are stated as required: `bisect-report` needs a check command, `onboard-file` needs a path.
+Every skill has an `## Invocation` block near the top listing what it accepts, and every argument has a derived default — including `scope-work`, which reads the incoming request from the session if none is passed. No skill requires an argument to start.
 
 The rule is not "derive silently" but **derive, then say what you derived**. A default that's wrong and unreported is worse than a question, because the output looks completely normal. `README.md` has the consolidated table and the six cases where a default can be wrong.
 
