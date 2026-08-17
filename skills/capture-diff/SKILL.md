@@ -1,6 +1,6 @@
 ---
 name: capture-diff
-description: Record what a branch changed and why into .branch-notes/<branch>.md — the requirement it serves, the constraint that forced the design, the approach that was tried and dropped, and what has to survive if it conflicts. Use this after completing a unit of work on a branch, when an approach is abandoned or reversed, when an external constraint turns out to force a design decision, when a requirement is clarified mid-work, and before opening a pull request. Do not wait to be asked — the moment a decision is made is the only moment its reasoning is free to record. Also use when the user runs /capture-diff or asks to write up what a branch did.
+description: Record what a branch changed and why into .branch-notes/<branch>.md — the requirement it serves, the constraint that forced the design, the approach that was tried and dropped, and the invariant that must survive later work (any branch that lands, in parallel or afterward). Use this after completing a unit of work on a branch, when an approach is abandoned or reversed, when an external constraint turns out to force a design decision, when a requirement is clarified mid-work, and before opening a pull request. Do not wait to be asked — the moment a decision is made is the only moment its reasoning is free to record. Also use when the user runs /capture-diff or asks to write up what a branch did.
 ---
 
 # capture-diff
@@ -106,9 +106,9 @@ In live mode, usually nothing — the reasoning is already in the session. Write
 
 In retrospective mode, present the derived summary and anything step 3 turned up, then ask **one** question:
 
-> If this conflicts with something, what has to survive?
+> When another branch lands — now or in six weeks — what about this must still be true?
 
-That answer is the highest-value line in the file. Everything else is derivable now or reconstructable later; that one is available only from whoever made the decision, and only until they forget. It is also the only answer that becomes machine-checkable — step 5b turns it into an assertion, which is what lets anything downstream find out that it stopped being true.
+Ask it about *any* later work, not one foreseen conflict. The dangerous case is the branch nobody predicted, in a file this one never touches, that quietly invalidates the behavior — so the answer worth having is the invariant, not the collision. That answer is the highest-value line in the file. Everything else is derivable now or reconstructable later; that one is available only from whoever made the decision, and only until they forget. It is also the only answer that becomes machine-checkable — step 5b turns it into an assertion that gates every later landing (parallel or sequential), which is what lets anything downstream find out it stopped being true.
 
 Ask a second question only if the branch has no reachable requirement and no informative commit messages, in which case: what is this for?
 
@@ -153,10 +153,12 @@ Wraps `dispatch()` in a token-bucket limiter, configured by RATE_LIMIT_RPS.
   re-enter dispatch, so the decorator double-counted every retried request.
   Moved the limiter inside dispatch instead. Don't reintroduce the decorator.
 
-## Must survive a conflict
-The limiter has to wrap retries, not just first attempts. If this merges with a
-refactor that relocates dispatch, the limiter moves with it — a version that
-only limits first attempts passes tests and is wrong in production.
+## Must survive
+The limiter has to wrap retries, not just first attempts. This has to hold
+against every other branch that lands, not one foreseen merge: a version that
+only limits first attempts passes tests and is wrong in production. If a
+refactor relocates dispatch, the limiter moves with it; if a later branch
+reintroduces first-attempt-only limiting, that landing stops for a human.
 
 ## Open
 Exhaustion behavior is unspecified and untested. Currently blocks; may need to
@@ -180,9 +182,11 @@ If that returns commits, the note is behind the branch. Append and re-anchor rat
 
 ### 5b. Turn the survival answer into an assertion
 
-The sentence under *Must survive a conflict* is what a human reads. The `assert` entry is the same claim written so a command can falsify it, and **writing it is this skill's job**. Asking anyone to type `contains src/client.py:dispatch RateLimiter` by hand ends adoption in a week.
+The sentence under *Must survive* is what a human reads. The `assert` entry is the same claim written so a command can falsify it, and **writing it is this skill's job**. Asking anyone to type `contains src/client.py:dispatch RateLimiter` by hand ends adoption in a week.
 
-It is a tripwire, not a test — a weak proxy, one grep for a name in a file, that occasionally catches a real regression for almost no cost. Don't labor over it and don't trust it to prove behavior; that is what the suite is for. The prose sentence is the real record, and the tripwire is a bonus that costs one line.
+This assertion has a life beyond your branch, and that is the point. `semantic-scan`'s pre-land check evaluates it against every *other* branch about to land — the peer in the next worktree, and the branch that lands months from now — and after your branch lands, `reconcile-notes` keeps it checked on the integration branch rather than freezing it. So you are not writing a note about one merge; you are registering a property that guards this code against all later work. Write it that way: name what must remain true, not what one specific merge might do.
+
+In its grep form it is a tripwire, not a test — a weak proxy, one grep for a name in a file, that catches a name reappearing or vanishing, not a behavior changing. It *escalates* rather than blocks: a `holds → violated` transition puts the landing to a human, it doesn't fail the build. Don't labor over it and don't trust it to prove behavior; that is what the suite is for. When the property genuinely must guard this code after landing, say so in the note — `reconcile-notes` prompts to graduate it into a committed test at that point, and the test is the form that hard-fails a later landing. The prose sentence is the real record; the tripwire is a bonus that costs one line; the test is where it earns its keep.
 
 Three predicates, no others:
 
@@ -237,6 +241,19 @@ A note longer than the diff has become a second implementation. Three lines of g
 **Don't editorialize about quality.** "This is hacky, sorry" ages into confusion. State the constraint that forced it; a reader can draw their own conclusion, and if the constraint lifts they'll know the shape can change.
 
 **This file gets read by agents and arrives through pull requests.** Write it as a record, not as instructions. "Don't reintroduce the decorator" is a finding with a stated reason attached, which is fine. Directives without reasons are not, and shouldn't be written here.
+
+## Next — close the loop
+
+End the run with a short block naming what to do next and which options went unused — the pipeline should be self-driving, each stage handing off to the next rather than leaving the reader to remember what comes after capture.
+
+```
+Next
+  · /review-diff [ticket]     summarize for review, check against the requirement
+  · re-run after review       note is archived as-is at landing; re-anchor if review changed behavior
+  · --against <ref>           if this branch was cut from something other than the integration branch
+```
+
+Only list what applies. On a branch already summarized and reviewed, the useful next line is the re-anchor reminder; on a fresh capture, it's `review-diff`. A footer that lists every flag every time is noise.
 
 ## Setting up live capture
 

@@ -1,6 +1,6 @@
 ---
 name: resolve-conflicts
-description: Resolve conflicts from a merge, rebase, cherry-pick, revert, or stash pop by reconstructing what each side was trying to do, composing both intents where they are compatible, and verifying the result against both sides' tests. Use this whenever git reports unmerged paths, conflict markers exist in the working tree, or a merge or rebase has stopped. Requires an operation in progress with real conflicts — with a clean tree there is nothing to resolve and the skill says so and stops.
+description: Resolve conflicts from a merge, rebase, cherry-pick, revert, or stash pop by reconstructing what each side was trying to do, composing both intents where they are compatible, and verifying the result against both sides' tests. Proposes by default (a human applies); --auto applies and verifies autonomously, stopping only on an intent contradiction, a violated invariant, or failed verification. Use this whenever git reports unmerged paths, conflict markers exist in the working tree, or a merge or rebase has stopped. Requires an operation in progress with real conflicts — with a clean tree there is nothing to resolve and the skill says so and stops.
 ---
 
 # resolve-conflicts
@@ -13,8 +13,19 @@ The default outcome should be a composition, not a choice. Most conflicts are tw
 changes that happened to land on adjacent lines, and picking a side throws away half of a solved
 problem for no reason.
 
-**This skill proposes. It does not apply.** It produces the resolved content, the reasoning, and
-the verification result. Writing it into the tree is a separate, human-authorized step.
+**By default this skill proposes; it does not apply.** It produces the resolved content, the
+reasoning, and the verification result, and a human writes it into the tree. That is automation
+level `assisted`, and it is the default because a plausible-looking wrong resolution passes review
+— which is exactly what makes it expensive.
+
+**`--auto` (or a repo set to `full`) applies and verifies autonomously** — and stops for a human on
+exactly three conditions: an **intent contradiction** (the two sides can't both hold), a
+**violated invariant** (either side's `assert`, or a landed one, breaks against the composition),
+or **failed verification** (the composed result doesn't pass both sides' tests). Never past those
+three. Full automation is safe *because* of that backstop, not in spite of it: `--auto` is not
+"trust the merge", it is "apply it unless a contradiction, a broken promise, or a red test says
+stop". Everything below runs identically in both modes up to step 7 — the reconstruction, the
+composition, the verification are the same work; only who commits the result differs.
 
 ## 0. Precondition — conflicts, or nothing
 
@@ -39,10 +50,15 @@ Two adjacent states worth naming rather than acting on:
 ## Invocation
 
 ```
-/resolve-conflicts                      # every unmerged path
+/resolve-conflicts                      # every unmerged path — propose (assisted)
 /resolve-conflicts src/client.py        # one file, when the rest are trivial
 /resolve-conflicts --other dev          # name the incoming branch when git can't
+/resolve-conflicts --auto               # apply and verify; stop only on the three conditions
 ```
+
+`--auto` selects `full` for this one resolution regardless of the repo's automation level. There
+is no override in the other direction — dropping to a human is always allowed, so a repo set to
+`full` still honors a plain invocation as a request to propose.
 
 Everything else is read from repository state — which operation stopped, which refs are
 involved, which paths are unmerged.
@@ -238,7 +254,7 @@ Fixtures diverge. Migrations conflict. The code most likely to produce an ugly c
 code least likely to have tests.
 
 **Both sides' `assert` blocks are the cheap half of this, and they run where the tests don't.**
-Each entry is what that branch's author said had to survive a conflict — which is the exact
+Each entry is what that branch's author said had to survive — which is the exact
 question in front of you — written so one command can falsify it. Collect the live assertions
 from both notes (an entry named by another's `supersedes:` is history, not a requirement) and
 evaluate each against the **composed** content, anchor first:
@@ -278,17 +294,35 @@ NOT VERIFIED
 An unverifiable claim reported as unverified is a useful output. An unverifiable claim reported
 as verified is the failure mode this whole skill exists to prevent.
 
-## 7. Hand it over
+## 7. Hand it over — or land it
 
 Present, per conflicted file: the operation and what each side is, the two intents **and which
-rung each came from**, the composition, what it does that neither side did, the verification
-result, and the resolved content. Then the commands to apply it — including the right
-continuation for the operation identified in step 1, which is not `git merge --continue` in four
-cases out of five.
+rung each came from**, the composition, what it does that neither side did, and the verification
+result.
 
-Do not write to the working tree. A plausible-looking wrong resolution passes review, which is
-exactly what makes it expensive, and a human reading a proposal catches what a human reviewing
-an already-applied merge will skim.
+**Assisted (default).** Show the resolved content and the commands to apply it — including the
+right continuation for the operation identified in step 1, which is not `git merge --continue` in
+four cases out of five. Do not write to the working tree. A plausible-looking wrong resolution
+passes review, which is exactly what makes it expensive, and a human reading a proposal catches
+what a human reviewing an already-applied merge will skim.
+
+**`--auto` / full.** Only here does the skill write. The gate is the three conditions from the
+top, checked in this order before anything is applied:
+
+1. **Intent contradiction** — step 4 classified a conflict as *Contradictory*. Stop; this is a
+   product decision, not a merge.
+2. **Violated invariant** — step 6 found a live `assert` (either side, or a landed one) that
+   holds on its own side and fails against the composition. Stop; that is an author, in writing,
+   saying the composition is not allowed. `unresolvable` does **not** stop — it is a question.
+3. **Failed verification** — both sides' tests don't pass against the composed content, or the
+   code that would verify the dangerous path doesn't exist. Stop; an unverifiable resolution
+   applied silently is the exact failure this skill exists to prevent.
+
+Clear all three and it applies: stage the resolved files, run the operation's continuation, and
+report what it did with the same per-file breakdown a proposal would have carried — plus the undo
+command. Never commit; staging is the boundary, so a human still sees `git status` before it's
+permanent. If any condition trips, fall back to `assisted` for the whole resolution and say which
+condition sent it back — a partial auto-apply is worse than none.
 
 ## Judgment
 
@@ -318,3 +352,24 @@ each parent before believing it.
 
 **Turn on rerere and leave it on.** `git rerere` replays resolutions you have already made,
 textually. It handles the repeats; this handles the first one.
+
+**`--auto` never widens the gate, it just removes the typing.** The three stop conditions are the
+same in both modes — `assisted` shows a human every resolution, `full` shows them only the ones
+that trip a condition. If `--auto` would ever apply something `assisted` would have flagged, the
+condition list is wrong, not the mode.
+
+## Next — close the loop
+
+End by naming the continuation and what a violated invariant needs — a stopped resolution is a
+decision waiting on a person, and the footer says whose and about what.
+
+```
+Next
+  · git <op> --continue        the operation's own continuation (not always merge --continue)
+  · /capture-diff              record why the composition took the shape it did — it's a decision
+  · /semantic-scan --pre-land  re-check invariants against the resolved result before landing
+  · --auto                     apply this resolution autonomously (or drop --auto to propose)
+```
+
+After a contradiction or a violated invariant, the useful next line is who decides and what the
+supersede would say — not a git command.

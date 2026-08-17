@@ -260,3 +260,17 @@ The funnel and the DEFERRED block do the same job from opposite ends: together t
 **This is not a gate.** It surfaces overlap and stops. Who rebases, who waits, whether the refactor lands first — those are calls for the people involved.
 
 **Fork-based workflows are blind spots.** Contributor branches on forks aren't on your remote and won't be scanned. Say so rather than reporting "no overlap", which is a materially different claim from "nothing I can see".
+
+## Next — close the loop
+
+End by naming what the overlap calls for — this is the first stage of the loop, so its footer points at where work begins.
+
+```
+Next
+  · talk to <author>            for each HIGH — the finding is a five-minute conversation, not a merge
+  · /semantic-scan <a> <b>      for each HANDOFF — a contract break in files neither branch shares
+  · /capture-diff               record which branch you chose to build on and why
+  · --limit N                   analyze the overlaps deferred below the cut
+```
+
+List only what the scan produced. A clean scan's useful next line is "nothing overlaps — start"; a scan full of HIGHs points at the conversations first.

@@ -10,19 +10,20 @@ This repo is a collection of agent skills, not an application. Each skill lives 
 
 The split is deliberate. `README.md` is for someone deciding whether to install this and how to use it — payoff, install, skills, arguments, paths. `SPEC.md` is for someone changing how it works — the state taxonomy, the gates, the invariants, the decisions and what would reopen them. Design reasoning that drifts into the README pushes the payoff below the fold; practical usage that drifts into the SPEC makes it a second README. Keep them apart.
 
+Six core skills, one per moment of a branch's life, plus infrastructure and two optional utilities.
+
 | Skill | Purpose |
 |---|---|
-| `baseline-scan` | Compute what the repo is from git into `.git/intent/base.md` — structure, hot/dormant, ownership, coupling |
-| `capture-diff` | Author-side capture into `.branch-notes/<branch>.md` — what changed and why |
-| `collision-scan` | Find in-flight branches working in the same code |
-| `semantic-scan` | Clean merges that broke behavior |
-| `bisect-report` | Bisect a regression and write up the finding |
-| `review-diff` | PR/branch summaries for reviewers — risk-ordered or against a ticket; reports note drift |
-| `resolve-conflicts` | Merge/rebase/cherry-pick/revert conflicts — reconstruct intent, compose, verify |
-| `merge-order` | Optimal merge order for a queue of branches |
-| `onboard-file` | Explain a file's history and blame context |
-| `release-notes` | Changelog and release notes from commit history |
-| `reconcile-notes` | Post-landing: archive landed notes, invalidate the baseline, report what the merge made false |
+| `collision-scan` | Starting: find in-flight branches and worktrees (incl. uncommitted) working in the same code |
+| `capture-diff` | Working: author-side capture into `.branch-notes/<branch>.md` — what changed, why, and the invariant that must survive later work |
+| `review-diff` | Ready: PR/branch summaries for reviewers — risk-ordered or against a ticket; reports note drift and evaluates invariants |
+| `semantic-scan` | Landing: clean merges that broke behavior; `--order` for a queue; the `--pre-land` invariant gate |
+| `resolve-conflicts` | Conflict: merge/rebase/cherry-pick/revert — reconstruct intent, compose, verify. Proposes; `--auto` applies |
+| `reconcile-notes` | Landed: archive landed notes (invariants stay live), invalidate the baseline, report what the merge made false; `--notes` for the changelog |
+| `baseline-scan` | *Infrastructure* — compute what the repo is into `.git/intent/base.md`; the shared cache the six read |
+| `onboard-file` · `bisect-report` | *Optional, off-loop* — a file's history and blame; bisecting a regression to its mechanism |
+
+`semantic-scan` absorbed the former `merge-order` (`--order`) and the pre-land invariant gate; `reconcile-notes` absorbed the former `release-notes` (`--notes`). Both folds are because the absorbed skill ran at the same moment on the same substrate as its host — see [`SPEC.md`](SPEC.md) §6.
 
 ## Layout
 

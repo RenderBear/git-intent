@@ -11,7 +11,7 @@ small amount of state over git refs; every act of judgment is delegated to a ski
 **Scope: multi-agent work.** The payoff is largest when more than one agent touches a codebase —
 whether at the same time (two agents on two branches) or across time (one agent abandons an
 approach, and a later session, a different agent, or a reviewer picks up the branch). The first
-case is collision, semantic, and merge-order analysis. The second is testimony: a handoff of
+case is collision and semantic analysis — overlap, silent breaks, ordering, the pre-land gate. The second is testimony: a handoff of
 reasoning that would otherwise be lost between sessions. A single agent on a single branch in one
 session needs almost none of this; every additional agent makes it matter more.
 
@@ -27,8 +27,11 @@ Each is a thing this could become and must not.
   `CHANGELOG.md`, `docs/adr/`. This does not compete with them.
 - **Not a source editor.** No skill writes a tracked source file. Resolutions, archives, and
   prunes are emitted as commands a human runs.
-- **Not an orchestrator.** It does not create branches, manage worktrees, or run agents. It reads
-  what an orchestrator produced and says what it was for.
+- **Skills don't orchestrate.** No skill creates branches, manages worktrees, or runs agents. The
+  operating protocol that *does* — cut a branch, work in a worktree, run the loop from first
+  commit to landing — ships as an agent rule in `AGENTS.md` (§5), not as a skill. A skill reads
+  what that protocol produced and says what it was for. The split matters: the protocol is a
+  convention a repo opts into, the skills work with or without it.
 - **Not required.** Every skill runs against a repo that never heard of this one. The layer makes
   them sharper, never possible.
 
@@ -113,7 +116,8 @@ The note stops being perishable (nothing more will be appended), stops being bra
 now lives on the integration branch), and changes retrieval key — nobody remembers `sam/fix-2`
 in a year, so archived notes are found by the paths in their frontmatter, not by branch name.
 
-Archived notes feed `release-notes`, `onboard-file`, and rung 2 above. They are the long-lived
+Archived notes feed the changelog (`reconcile-notes --notes`), `onboard-file`, and rung 2 above.
+Their invariants stay live and gate every later landing (§7.1.1, §7.3). They are the long-lived
 half of the system and the reason capture is worth doing.
 
 ### 2.5 Policy — where git already reads it
@@ -134,17 +138,22 @@ Nothing here dispatches. There is no event loop; a skill runs because a human ty
 an agent rule fired it, or a hook printed a suggestion (§5). What follows is the situation each
 skill answers, not a lifecycle it reacts to.
 
+The six core skills map one-to-one onto the moments of the loop. Two more (`onboard-file`,
+`bisect-report`) are useful but sit off the loop; they ship as optional utilities. `baseline-scan`
+is infrastructure the others call, not a moment of its own (§6).
+
 | Situation | Skill | Gate |
 |---|---|---|
 | Starting a branch — who else is in this code? | `collision-scan` | auto |
 | A decision was made or an approach dropped | `capture-diff` | append |
 | Preparing a branch for review | `capture-diff`, `review-diff` | append |
 | Reviewing, or checking against a requirement | `review-diff` | auto |
-| Several branches queued to merge | `merge-order` | auto |
-| A merge/rebase/cherry-pick left conflicts | `resolve-conflicts` | propose |
-| A branch just landed | `reconcile-notes` | archive / confirm |
+| Several branches queued to merge | `semantic-scan --order` | auto |
+| About to land — will this break anyone? | `semantic-scan` (pre-land) | propose |
+| A merge/rebase/cherry-pick left conflicts | `resolve-conflicts` | propose (`--auto` → full) |
 | A clean merge you don't trust | `semantic-scan` | auto |
-| Cutting a release | `release-notes` | auto |
+| A branch just landed | `reconcile-notes` | archive / confirm |
+| Cutting a release | `reconcile-notes --notes` | auto |
 | Why is this file like this? / What broke? | `onboard-file`, `bisect-report` | auto / runs |
 
 Most of these are answerable at any later time from repository state, so missing the moment costs
@@ -283,6 +292,38 @@ pair analysed yesterday whose side has moved ten commits since is stale in the o
 loses a finding. A ranking score is never a finding — "exposed" and "broken" are different
 claims, and conflating them turns the ranking into noise.
 
+### 3.7a Before landing — the invariant gate
+
+The same population reasoning runs one more time, at the moment a branch is about to land, as a
+gate rather than an audit. `semantic-scan` evaluates the *merge result* against three sets of
+invariants (§7.1.1) on the intersecting paths:
+
+- the landing branch's **own** live invariants;
+- its **live peers'** — the branches (and worktrees) still in flight that share paths;
+- every **landed** invariant on the integration branch that touches those paths.
+
+A `holds → violated` transition is the gate. Tripwires *escalate* to a human; graduated tests
+*hard-fail* (§7.1.2). This is the single check that gives both properties the state model exists
+for: two agents in two worktrees can't silently undo each other (peer set), and a branch landing
+today can't silently undo one that landed last month (landed set). Path intersection scopes it —
+the cache already holds each branch's path set, so the gate reads a set operation, not a rescan.
+
+Escalation obeys the automation level (§4): `assisted` puts every violation and every non-trivial
+resolution to a human; `full` proceeds autonomously and stops only on a violated invariant, an
+intent-level contradiction, or a failed verification.
+
+### 3.7b Ordering a queue — `semantic-scan --order`
+
+When several branches are queued, arrival order means each rebases onto every earlier branch's
+surprises; landing the structural change first means everything rebases onto it once. `--order`
+reports **what depends on what, and why** — a dependency is a fact about the code that survives
+being ignored, where a prescribed sequence dies the moment an approved PR sits at the bottom of
+it. It reuses the exposure substrate (divergence, path intersection, interface weight); only pairs
+whose paths intersect can carry an ordering constraint, so most pairs drop out and the report says
+how many survived. A merge queue is a social fact git doesn't hold — which branches are approved,
+which are abandoned — so this is one of the few places asking "which are actually queued?" is
+right rather than a failure to derive.
+
 ### 3.8 Catching up what nobody watched
 
 Review and merge happen in a browser tab, where no agent session exists, so the skills that
@@ -315,14 +356,37 @@ inside `.branch-notes/`, staged not committed, undo printed — because archivin
 after every landing and a proposal nobody runs is how the folder rots. Deletion keeps its gate:
 it destroys reasoning that exists nowhere else.
 
+### 4.1 Automation level
+
+`propose` names *what* needs a human; the automation level names *whether one is there*. It is a
+repo-wide stance, set in the agent rule (§5), with a per-invocation override.
+
+- **`assisted`** (default) — every `propose` gate stops for a human. Conflict resolutions and
+  invariant-violating landings are emitted as reasoning plus exact commands; a person applies
+  them. This is the loop as a pull request.
+- **`full`** — agents apply and verify `propose` outcomes autonomously, and stop *only* on three
+  conditions: an **intent-level contradiction** (the two sides can't both hold), a **violated
+  invariant** (peer or landed, §3.7a), or **failed verification** (the composed result doesn't
+  pass both sides' tests). Never past those three.
+
+Full automation is safe precisely *because* those three are the backstop — `--auto` is not "trust
+the merge", it is "trust it unless a tripwire, a test, or an intent contradiction says stop". The
+per-command override is `resolve-conflicts --auto`, which selects `full` for that one resolution
+regardless of the repo default; there is no override in the other direction, because dropping to a
+human is always allowed. `auto` and `append` gates are unaffected — nothing there is destructive
+enough to need a human either way.
+
 ## 5. Transports
 
 How a skill fires is pluggable. All optional, freely mixed, none required.
 
 - **Human.** Type the slash command. Always works, and the floor everything else builds on.
 - **Agent rule.** A block in `CLAUDE.md` / `AGENTS.md` / `.cursorrules`. The only transport
-  present at the moment a decision happens, so the only one that can prompt capture. It loads on
-  every turn, so it carries trigger conditions and nothing else — format lives in the skill.
+  present at the moment a decision happens, so the only one that can prompt capture — and the only
+  place the operating protocol (branch, worktree, run the loop, §1) and the automation level
+  (§4.1) can live, since both must be in context before the first commit. It loads on every turn,
+  so it carries triggers, the protocol, and the level, and nothing else — skill format stays in
+  the skill. `AGENTS.example.md` is the block to copy.
 - **Git hook.** `hooks/` ships `post-checkout` and `post-merge`; they print a suggestion to
   stderr and exit 0. A hook has no session and cannot handle an event, only nudge. Both exit 0
   unconditionally — a hook that blocks gets disabled within a week and takes the useful ones
@@ -330,31 +394,44 @@ How a skill fires is pluggable. All optional, freely mixed, none required.
   the two files individually.
 - **CI.** `ci/` ships a POSIX script and a workflow example. This is the only transport that
   reaches the browser tab where review and merge happen. It runs the mechanical checks — note
-  present, not a stub, `captured_at` not drifted, any assertions resolving — and comments. **Only
-  a violated assertion fails the build**; drift and unresolvable anchors are comments, because a
-  check that blocks on a rename gets switched off. Provider-specific YAML is the one thing here
-  that isn't plain git, so the logic lives in the script and porting is a new wrapper.
+  present, not a stub, `captured_at` not drifted, invariants resolving — and comments. **Only a
+  *violated* tripwire fails the build** (anchor resolves, predicate false — a claim the author
+  said had to survive did not); drift and `unresolvable` anchors are comments, because a check
+  that blocks on a rename gets switched off. This is the CI reading of the two-tier rule (§7.1.2):
+  the red build *is* the escalation, and the PR is inherently human-gated, so a violated tripwire
+  blocking here is right where the same violation only pauses-and-asks in the interactive pre-land
+  gate. A **graduated test** fails the build too, but as an ordinary test, not through this
+  script. Provider-specific YAML is the one thing here that isn't plain git, so the logic lives in
+  the script and porting is a new wrapper.
 
 A harness (a worktree manager) can also call skills directly; it needs only refs and SHAs, and
 re-derives everything from git at call time.
 
 ## 6. Skill contracts
 
+Six core skills, one per moment of the loop. `baseline-scan` sits below them as the shared cache
+producer they all call; it stays invocable (`--refresh`, `--print`) but is infrastructure, not a
+moment. `onboard-file` and `bisect-report` are off-loop utilities, shipped optionally.
+
 | Skill | Reads | Writes | Gate |
 |---|---|---|---|
-| `baseline-scan` | git, CI config, `.gitattributes`, `CODEOWNERS` | cache | auto |
-| `capture-diff` | git, cache, own note | `.branch-notes/<branch>.md` | append |
 | `collision-scan` | git, worktrees incl. uncommitted, others' notes, cache | cache (path sets) | auto |
-| `semantic-scan` | git, call sites, notes and archive, cache | cache (ranking) | auto |
-| `bisect-report` | git, runs the suite | — | *runs* |
+| `capture-diff` | git, cache, own note | `.branch-notes/<branch>.md` | append |
 | `review-diff` | git, own note, cache, policy | — | auto |
-| `resolve-conflicts` | git stages, both sides via the §2.3 ladder, policy | — | propose |
-| `merge-order` | git, queued notes via `git show`, cache | — | auto |
-| `onboard-file` | git, cache, archive | — | auto |
-| `release-notes` | git, archive | — | auto |
-| `reconcile-notes` | git, notes, archive, cache anchor | archive moves, cache invalidation | archive / confirm |
+| `semantic-scan` | git, call sites, notes and archive incl. invariants, cache | cache (ranking) | auto; pre-land is propose |
+| `resolve-conflicts` | git stages, both sides via the §2.3 ladder, policy | tree only under `--auto`/`full` | propose (`--auto` → full) |
+| `reconcile-notes` | git, notes, archive, cache anchor | archive moves, cache invalidation, changelog | archive / confirm |
+| *infra:* `baseline-scan` | git, CI config, `.gitattributes`, `CODEOWNERS` | cache | auto |
+| *optional:* `onboard-file` | git, cache, archive | — | auto |
+| *optional:* `bisect-report` | git, runs the suite | — | *runs* |
 
-Only `capture-diff` writes testimony. Cache writes are not durable — anything there recomputes.
+`semantic-scan` absorbs the former `merge-order` (as `--order`, §3.7b) and the pre-land invariant
+gate (§3.7a); `reconcile-notes` absorbs the former `release-notes` (as `--notes`). Both folds are
+because the absorbed skill ran at the same moment on the same substrate as its host.
+
+Only `capture-diff` writes testimony. `resolve-conflicts` writes the working tree *only* at
+automation level `full` (or `--auto`); at `assisted` it emits commands. Cache writes are not
+durable — anything there recomputes.
 
 **The two scans do not overlap.** `collision-scan` works the paths two branches **share** (will
 they collide when they land); `semantic-scan` works the paths they **don't** (did they break each
@@ -394,13 +471,23 @@ Wraps `dispatch()` in a token-bucket limiter, configured by RATE_LIMIT_RPS.
 - 2026-08-06 · in-session — Tried a decorator on the retry loop first. Retries
   re-enter dispatch, so it double-counted every retried request.
 
-## Must survive a conflict
-The limiter has to wrap retries, not just first attempts. If this merges with a
-refactor that relocates dispatch, the limiter moves with it.
+## Must survive
+The limiter has to wrap retries, not just first attempts. This has to hold
+against any other branch that lands — a version that only limits first attempts
+passes tests and is wrong in production. If a refactor relocates dispatch, the
+limiter moves with it; if a later branch would reintroduce first-attempt-only
+limiting, that landing stops for a human.
 
 ## Open
 Exhaustion behavior is unspecified and untested.
 ```
+
+*Must survive* is not about one foreseen merge. It is the property that has to
+hold on the integration branch after **any** other work lands — the concurrent
+branch in the next worktree, and the branch that lands six weeks from now. That
+is why it replaced the earlier "must survive a conflict" framing: a textual
+conflict is one way the property breaks, and rarely the dangerous one. The
+lifecycle that enforces it across parallel and later work is §7.1.1.
 
 Dates under *Why this shape* are required — a reversal only means something against the attempt
 it reversed, and an undated list reads as simultaneous. Each entry marks its provenance:
@@ -415,13 +502,15 @@ archived note is grepping prose for a filename someone happened to type. Both ar
 computed from `git diff --name-only` and the `-U0` hunk headers. `merged` is left empty and
 filled by `reconcile-notes` on archive.
 
-**Assertions (optional).** The *Must survive a conflict* prose is what a human reads and an agent
-reasons from. A note may also carry a cheap tripwire — the same claim in a form one `git grep`
-can check — so `review-diff`, `resolve-conflicts`, and CI can flag when it stops holding:
+**Invariants (optional).** The *Must survive* prose is what a human reads and an agent reasons
+from. A note may also carry the same claim in a form a command can check — an `assert` entry — so
+`review-diff`, `resolve-conflicts`, `semantic-scan`, and CI can flag when it stops holding:
 
 ```yaml
 assert:
-  - check: contains src/client.py:dispatch RateLimiter
+  - id: a1
+    added: 2026-08-06
+    check: contains src/client.py:dispatch RateLimiter
     why: the limiter has to wrap retries, not just first attempts
 ```
 
@@ -429,7 +518,46 @@ Three predicates, each one grep: `exists <path>[:<symbol>]`, `contains <path>[:<
 <needle>`, `absent <needle> [<pathspec>]`. The needle is file-scoped even when the anchor names a
 symbol — extracting a symbol's body is brittle in shell, and the value here is being one cheap
 grep, so it checks presence in the file, not enclosure. Report that limit where you report the
-result.
+result. The grep form is a **weak proxy** — it catches a name reappearing or vanishing, not a
+behavior changing — and durable protection graduates to a test (§7.1.2).
+
+### 7.1.1 The invariant lifecycle
+
+An invariant is not a note about one merge; it has a life that spans the whole time the feature
+exists, and this is the part the old "survive a conflict" framing missed.
+
+1. **Register** — `capture-diff` writes the prose and, where the survival answer is concrete, the
+   `assert` tripwire. Branch-local, checked against the author's own branch only (an assertion
+   already false at capture time is a mistranslation, not a finding — fix the predicate).
+2. **Check both directions** — before any branch lands, `semantic-scan`'s pre-land check (§3.6a)
+   evaluates the merge result against three sets of invariants on the intersecting paths: the
+   branch's own, its **live peers'** (the other worktree), and every **landed** invariant. A
+   `holds → violated` transition is the finding. This is what makes two agents in two worktrees
+   unable to silently undo each other, and a later branch unable to silently undo an older landed
+   one.
+3. **Graduate** — on landing, `reconcile-notes` moves the note to `_archive/`, and the invariant
+   **stays live** (§7.3). The prose freezes; the check does not. For a property that must guard
+   landed code, this is where the tripwire should become a committed test (§7.1.2).
+4. **Retire** — the only license to break a landed invariant is a later change that *deliberately*
+   supersedes the requirement it encoded. That is a human decision, recorded append-only with a
+   dated `supersedes:` (§7.1, below). Global intent changing is an explicit, signed retire — never
+   silent erosion by an unrelated refactor. This is the "unless in conflict" escape.
+
+### 7.1.2 Two-tier enforcement
+
+The strength of the check tracks the quality of the evidence, because a check that blocks on a
+weak proxy gets switched off and takes the strong ones with it.
+
+- **Tripwire (grep)** — *escalates*. On a `holds → violated` transition it stops the landing and
+  puts the decision to a human (the `propose` gate, §4). It is a proxy; hard-blocking a rename on
+  it teaches people to ignore it.
+- **Graduated test** — *hard-fails*. Once the survival property is a committed test on the
+  integration branch, it is a test like any other: a landing that breaks it fails the build. No
+  new machinery — the property earned its way from proxy to proof.
+
+Not every invariant needs to graduate. Mark the ones that must guard code after landing; leave the
+rest as prose plus optional tripwire. Forcing a test on every branch is how the whole thing gets
+switched off.
 
 Evaluation is **anchor-first**, and this is the one rule that matters: resolve the anchor, *then*
 the predicate. Three outcomes —
@@ -441,9 +569,10 @@ the predicate. Three outcomes —
   reported as a violation teaches people to ignore violations, which costs the real ones.
 
 `capture-diff` writes the predicate from the paths and symbols it already has and puts the
-sentence in `why:`; a human is never asked to hand-write one. It is a tripwire, not a test — a
-weak proxy that occasionally catches a real regression for almost no cost, and no note is
-worse for having none.
+sentence in `why:`; a human is never asked to hand-write one. In its grep form it is a tripwire,
+not a test — a weak proxy that escalates rather than blocks (§7.1.2) — and no note is worse for
+having none. When the property must guard code after the branch lands, it graduates to a
+committed test at reconcile time; that is the form that hard-fails a later landing.
 
 ### 7.2 `.git/intent/base.md`
 
@@ -453,16 +582,27 @@ it read, since the reader can't see into `.git/` to judge the cache's age.
 
 ### 7.3 `.branch-notes/_archive/<branch>.md`
 
-Identical format, moved by `reconcile-notes` with `merged` filled, path mirrored, never rewritten
-after. Frozen means assertions in it are **not checked** — an archived note can't be corrected,
-so the first rename after landing would leave it permanently violated. Assertions are checked for
-live branches only.
+Identical format, moved by `reconcile-notes` with `merged` filled, path mirrored. The **prose** is
+frozen — never rewritten after archiving, because it is the record of what shipped. The
+**invariant** is not: a landed note's `assert` entries keep being checked, on the integration
+branch, against every later landing (§7.1.1 step 3). This is the reversal from the first version
+of this spec, and the whole reason a later feature can't silently undo an older landed one.
+
+Two consequences follow. An archived tripwire that goes `unresolvable` after a legitimate rename
+is still a question, not a failure (§8, I13) — the same rule as for live branches, and the reason
+a frozen note isn't left permanently violated by the first refactor. And an archived invariant is
+only ever retired through a new, dated `supersedes:` entry appended by the branch that
+deliberately changes the requirement (§7.1.1 step 4) — never by editing the frozen note. The
+freeze protects the testimony; it does not silence the guard.
 
 ## 8. Invariants
 
 Each names a way the layer could rot into something worse than nothing.
 
-- **I1** No skill writes a tracked source file.
+- **I1** No skill authors a tracked source file. The one write is `resolve-conflicts` applying a
+  composed conflict resolution to the working tree, and only at automation level `full`/`--auto`
+  (§4.1); the content is composed from the two existing sides, never invented, and `assisted`
+  emits commands instead.
 - **I2** Every committed intent file arrives through a PR and is reviewed there.
 - **I3** Notes are append-only and dated; assertions supersede rather than change.
 - **I4** Nothing derivable from git is asked of a human. This outranks completeness.
@@ -482,6 +622,17 @@ Each names a way the layer could rot into something worse than nothing.
   below a cut is counted in the output, not dropped.
 - **I13** An assertion whose anchor no longer resolves is `unresolvable`, never `violated`, and
   never blocks.
+- **I14** A landed invariant stays checked. Archiving freezes a note's prose but not its `assert`
+  entries, which gate every later landing until explicitly superseded (§7.1.1, §7.3).
+- **I15** The pre-land gate checks all three invariant sets — the landing branch's own, its live
+  peers', and every landed one — on the intersecting paths, never the branch's own alone. Checking
+  only your own is how a branch silently undoes work it didn't touch.
+- **I16** Enforcement tracks evidence: a grep tripwire escalates to a human, a graduated test
+  hard-fails. Neither hard-blocks on `unresolvable`. A check that blocks on a rename gets disabled,
+  and takes the real findings with it.
+- **I17** Full automation stops for a human on exactly three conditions — intent contradiction,
+  violated invariant, failed verification — and never silently past them. The three are the reason
+  `--auto` is safe, not a fallback for when it isn't.
 
 ## 9. Open questions
 
@@ -496,3 +647,12 @@ agents than it ever was for humans. Worth measuring rather than assuming.
 saying so. A PR-open webhook would detect it and is exactly the service §1 rules out, so it stays
 a thing a human triggers by running `/capture-diff` or `/review-diff` when they were going to
 anyway.
+
+**Can the author name the invariant that will matter?** The pre-land gate (§3.7a) and full
+automation (§4.1) lean on the *Must survive* line being the property a future, unforeseen branch
+will endanger. But the dangerous case is the collision nobody predicted — and an author who could
+foresee which invariant a later refactor would break would often just harden the code instead. So
+the line is strongest exactly where danger is lowest, and the graduated test (§7.1.2) is the
+partial answer: a property worth a committed test survives being un-foreseen, where a prose
+sentence written against the wrong future does not. How often the registered invariant is the one
+that actually matters is, like capture itself, worth measuring rather than assuming.

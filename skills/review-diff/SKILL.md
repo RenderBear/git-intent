@@ -228,3 +228,17 @@ Write for someone who knows the codebase but not this branch. Skip the narration
 Prefer plain description over selling. A summary that argues for the change makes reviewers suspicious, and rightly so — the job is to help them evaluate, not to get to approval.
 
 When commit messages are uninformative (`fix`, `wip`, `address comments`), derive intent from the diff and say so, rather than repeating empty messages back as if they were content.
+
+## Next — close the loop
+
+End by naming what review turned up that the author has to act on before landing — a stale note, a missing capture, a failing check.
+
+```
+Next
+  · /capture-diff              if the note is missing, a stub, or behind the branch (re-anchor after review)
+  · /semantic-scan --pre-land  before landing — check invariants against peers and landed work
+  · /resolve-conflicts         if the branch won't merge cleanly
+  · <ticket text>              re-run as a requirement check if only a summary was produced
+```
+
+List only what applies. On a clean, well-captured branch the useful next line is the pre-land gate; on one with a silent abandoned approach, it's capture.

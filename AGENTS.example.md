@@ -67,6 +67,56 @@ gap on every run, but only if someone is running it.
 
 ---
 
+## Working in parallel — for repos running agents in worktrees
+
+The blocks above make the *skills* fire. This one makes the *agent* operate like a careful human
+integrator instead of a single-threaded editor — it's what you add when more than one agent works
+the repo at once. Heavier than the capture rule, so add it only for that case.
+
+```markdown
+## Working in parallel
+
+Operate like a careful human integrator, not a single-threaded editor.
+
+- **One unit of work = one branch = one worktree.** Never edit an integration
+  branch (main / develop / release/*) directly. Cut a worktree per task:
+      git worktree add ../wt/<slug> -b <type>/<slug>
+  Work only inside it. The git-intent cache is shared across worktrees
+  automatically, so parallel agents don't clobber each other's baseline.
+- **Before writing code:** collision-scan. If another worktree or live branch
+  is already in these files, settle who owns what now, not at merge.
+- **While working:** capture-diff as you decide — and register the invariant
+  (Must survive) that keeps your work from being silently undone by someone
+  else's clean merge.
+- **Before landing:** semantic-scan --pre-land. Your merge result must violate
+  no invariant — your own, a live peer's, or a landed one. If it would, STOP
+  and escalate; never resolve an invariant you don't own.
+- **After landing:** reconcile-notes on the integration branch.
+
+Don't wait to be asked for any of these.
+```
+
+## Automation level
+
+One line, and it governs how the `propose` gates behave — conflict resolution and any
+invariant-violating landing.
+
+```markdown
+## Automation level
+
+assisted (default) — propose gates stop for a human, who applies conflict
+                     resolutions and any invariant-violating landing.
+full               — agents apply and verify autonomously, and STOP for a human
+                     only on: an intent contradiction, a violated invariant, or
+                     failed verification. Never past those three.
+```
+
+Start at `assisted`. Move to `full` once you trust the invariants and tests to be the backstop —
+they are what make full automation safe, so a repo with thin capture and no graduated tests should
+not be running `full`. A single command can still opt in with `resolve-conflicts --auto`.
+
+---
+
 ## What does not go in branch notes
 
 Say this in the repo's own instructions if it isn't already obvious there:

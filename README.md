@@ -74,9 +74,11 @@ Nothing else is required. Every skill works on a repo that has never heard of th
 
 ### Recommended, per repo
 
-Two things are worth turning on in a repo where several agents are working. Both are opt-in and neither is needed for any skill to function.
+A few things are worth turning on in a repo where several agents are working. All are opt-in and none is needed for any skill to function.
 
 **Live capture.** Copy the block from [`AGENTS.example.md`](AGENTS.example.md) into that repo's `CLAUDE.md`, `AGENTS.md`, or `.cursorrules`. This is what makes `capture-diff` record the approach you abandoned at 11am instead of losing it by Thursday — a decision being dropped leaves no git state, so no hook can catch it and no command can be scheduled for it. Only something already in the session can.
+
+**The parallel operating block.** The same [`AGENTS.example.md`](AGENTS.example.md) carries a heavier block for repos running agents in worktrees: one branch = one worktree, collision-scan before you write, the pre-land invariant gate before you land, reconcile after. It's what makes agents operate like careful integrators rather than trampling each other — and it's where you set the automation level (`assisted` by default, `full` once the invariants and tests are trustworthy enough to be the backstop).
 
 **Event nudges.** [`hooks/`](hooks/) ships `post-checkout` and `post-merge`, which print a one-line suggestion when a branch is created or work lands:
 
@@ -90,33 +92,25 @@ They print to stderr and exit 0 — a hook can't run an agent, so these detect t
 
 ## The skills
 
-**Deriving from git** — no setup, no notes, nothing recorded first.
+Six skills, one per moment of a branch's life, from cutting it to landing it. Everything is git-native; the intent layer is the small committed residue they leave behind for the next actor to read.
 
 | | |
 |---|---|
-| [`baseline-scan`](skills/baseline-scan/SKILL.md) | What the repo is, computed — structure, hot and dormant areas, ownership and bus factor, which files change together. Asks nothing, authors nothing, regenerates in seconds |
-| [`collision-scan`](skills/collision-scan/SKILL.md) | Who else is working in your code and what they're trying to do, while it's still cheap to talk. Local worktrees first, then live remote branches |
-| [`semantic-scan`](skills/semantic-scan/SKILL.md) | Conflicts git never reported: one branch changes a contract, another adds a caller depending on the old one, different files, merges green, fails in production. Ranks a whole repo by exposure before analyzing anything |
-| [`bisect-report`](skills/bisect-report/SKILL.md) | The commit behind a regression, and the mechanism — not just the hash |
-| [`merge-order`](skills/merge-order/SKILL.md) | Which changes have to land before which, so one conflict isn't resolved four times |
-| [`onboard-file`](skills/onboard-file/SKILL.md) | Why a file is shaped like this, what's safe to change, who to ask |
-| [`release-notes`](skills/release-notes/SKILL.md) | A changelog that says why each change happened, not just what landed |
+| [`collision-scan`](skills/collision-scan/SKILL.md) | **Starting.** Who else is working in your code and what they're trying to do, while it's still cheap to talk. Local worktrees first — including uncommitted work no remote scan sees — then live remote branches |
+| [`capture-diff`](skills/capture-diff/SKILL.md) | **Working.** What a branch changed and why, into `.branch-notes/<branch>.md` — the abandoned approach, the requirement, and the invariant that must survive later work. The one skill that writes testimony. Live during the work, or reconstructed on demand |
+| [`review-diff`](skills/review-diff/SKILL.md) | **Ready.** Risk-ordered summary for reviewers — or, given a ticket, a requirement-by-requirement check. Also reports when the note is missing, a stub, or behind the branch |
+| [`semantic-scan`](skills/semantic-scan/SKILL.md) | **Landing.** Conflicts git never reported (a contract changes here, a caller depends on the old one there, merges green, fails in production); the pre-land gate that stops a branch from silently undoing a peer's or a landed branch's invariant; and `--order` for a merge queue. Ranks a whole repo by exposure before analyzing anything |
+| [`resolve-conflicts`](skills/resolve-conflicts/SKILL.md) | **Conflict.** Reconstructs what each side meant, composes both where compatible, verifies with tests. Proposes by default; `--auto` applies and verifies, stopping only on a contradiction, a broken invariant, or a red test. Merge, rebase, cherry-pick, revert, stash |
+| [`reconcile-notes`](skills/reconcile-notes/SKILL.md) | **Landed.** Archives the notes of branches that shipped, keeps their invariants live against later landings, invalidates the baseline, reports what the merge made false — and `--notes` cuts the changelog |
 
-**Recording what can't be derived** — the one skill that writes testimony.
-
-| | |
-|---|---|
-| [`capture-diff`](skills/capture-diff/SKILL.md) | What a branch changed and why, into `.branch-notes/<branch>.md`. The abandoned approach, the requirement it's written against, what has to survive a conflict. Live during the work, or reconstructed on demand |
-
-**Acting on it.**
+Below the loop, two supporting roles:
 
 | | |
 |---|---|
-| [`review-diff`](skills/review-diff/SKILL.md) | Risk-ordered summary for reviewers — or, given a ticket, a requirement-by-requirement check. Also reports when the branch note is missing, a stub, or behind the branch |
-| [`resolve-conflicts`](skills/resolve-conflicts/SKILL.md) | Reconstructs what each side meant, composes both where compatible, verifies with tests. Handles merge, rebase, cherry-pick, revert, and stash |
-| [`reconcile-notes`](skills/reconcile-notes/SKILL.md) | After landing: archives the notes of branches that shipped, invalidates the baseline cache, reports which of its claims the merge made false |
+| [`baseline-scan`](skills/baseline-scan/SKILL.md) | *Infrastructure.* What the repo is, computed — structure, hot and dormant areas, ownership, which files change together. The shared cache the six read; regenerates in seconds. Rarely run by hand |
+| [`onboard-file`](skills/onboard-file/SKILL.md) · [`bisect-report`](skills/bisect-report/SKILL.md) | *Optional, off-loop.* Why a file is shaped like this and who to ask; and the commit behind a regression with its mechanism. Useful, but not part of branch → landing — install if you want them |
 
-`collision-scan` and `semantic-scan` look like neighbours and aren't. The first compares work whose paths **intersect** — will these collide when they land. The second compares work whose paths are **disjoint** — did they break each other without colliding. Neither reasons about the other's population, and each hands off by name when it sees one.
+`collision-scan` and `semantic-scan`'s analysis look like neighbours and aren't. The first compares work whose paths **intersect** — will these collide when they land. The second's analysis compares work whose paths are **disjoint** — did they break each other without colliding. Each hands off by name when it sees the other's population. (`semantic-scan`'s `--order` and pre-land gate sit above that line and use both — see its SKILL.)
 
 ## What each skill takes
 
@@ -124,19 +118,17 @@ Every argument has a derived default, and every skill states which default it us
 
 | Skill | Default | Accepts |
 |---|---|---|
-| `baseline-scan` | regenerates the cache if stale | `--refresh` · `--print` · `--window 6m` |
 | `collision-scan` | worktrees, then 30 live branches, 10 analyzed | a target · `--worktrees` · `--live N\|all` · `--limit N` · `--count` |
 | `capture-diff` | measures against the integration branch | a target branch · `--against <ref>` |
 | `review-diff` | risk-ordered summary vs the integration branch | a target · requirement text |
-| `merge-order` | 30 live branches, ranked as above | branch names · `--live N\|all` · `--target <ref>` |
-| `resolve-conflicts` | every unmerged path | a path · `--other <branch>` |
-| `reconcile-notes` | local ∩ remote, archive only | `--remote` · `--local` · `--delete` · `--dry-run` |
-| `semantic-scan` | the most recent merge commit | `--exposure` · a merge sha · one or two branch names |
-| `release-notes` | most recent tag to HEAD | a range · `--audience <role>` |
-| `onboard-file` | asks for a path | a path · `:88` · `:88-104` · a symbol |
-| `bisect-report` | asks for a check command | a check command · `--good` · `--bad` · `--runs N` |
+| `semantic-scan` | the most recent merge commit | `--exposure` · `--order <branches>` · `--pre-land` · a merge sha · one or two branch names |
+| `resolve-conflicts` | every unmerged path, proposed | a path · `--other <branch>` · `--auto` |
+| `reconcile-notes` | local ∩ remote, archive only | `--remote` · `--local` · `--delete` · `--dry-run` · `--notes [range] [--audience <role>]` |
+| `baseline-scan` *(infra)* | regenerates the cache if stale | `--refresh` · `--print` · `--window 6m` |
+| `onboard-file` *(optional)* | asks for a path | a path · `:88` · `:88-104` · a symbol |
+| `bisect-report` *(optional)* | asks for a check command | a check command · `--good` · `--bad` · `--runs N` |
 
-**Liveness, not recency.** `collision-scan` and `merge-order` both need "which branches count", and a date window is the wrong filter — it drops a nine-day-old branch that rewrites your function and keeps one that got a README typo fix this morning. Both rank instead, on commit recency, commits ahead, divergence behind, and whether the branch has already landed, then take the top `--live N`. The cut is a budget: what falls below it is counted, and anything below it that shares a path with you is named anyway.
+**Liveness, not recency.** `collision-scan` and `semantic-scan --order` both need "which branches count", and a date window is the wrong filter — it drops a nine-day-old branch that rewrites your function and keeps one that got a README typo fix this morning. Both rank instead, on commit recency, commits ahead, divergence behind, and whether the branch has already landed, then take the top `--live N`. The cut is a budget: what falls below it is counted, and anything below it that shares a path with you is named anyway.
 
 **`--worktrees` and `--local` are different things** and deliberately not the same word. `collision-scan --worktrees` means parallel agents on this machine, including uncommitted work no remote scan can see. `reconcile-notes --local` means classify notes against local branches only — which is the dangerous mode, since a fresh clone has one local branch and would sweep almost everything.
 
@@ -144,7 +136,9 @@ Every argument has a derived default, and every skill states which default it us
 
 **Two skills can't start on their own**, and asking is right rather than a gap. `bisect-report` needs a reproduction because only the person seeing the bug knows what reproduces it, and a bisect against a guessed test spends an hour confidently blaming a random commit. `onboard-file` needs a path because its output is shaped around one file's decisions, and averaging that over a directory produces nothing actionable.
 
-A bare positional is the target branch everywhere except `merge-order`, where positionals are branch names and the target moves to `--target`. Passing requirement text to `review-diff` switches it from a risk-ordered summary to a clause-by-clause check. `release-notes --audience` takes `integrators`, `on-call`, or `users`, and changes what gets promoted rather than just the tone — a library changelog leads with breaking changes, an internal service's leads with what on-call needs at 3am.
+A bare positional is the target branch everywhere except `semantic-scan --order`, where positionals are branch names and the target moves to `--target`. Passing requirement text to `review-diff` switches it from a risk-ordered summary to a clause-by-clause check. `reconcile-notes --notes --audience` takes `integrators`, `on-call`, or `users`, and changes what gets promoted rather than just the tone — a library changelog leads with breaking changes, an internal service's leads with what on-call needs at 3am.
+
+**`resolve-conflicts --auto` and the automation level.** By default every conflict resolution and every invariant-violating landing stops for a human (`assisted`). A repo can set `full` in its agent rule, or a single call can opt in with `--auto` — either way the agent applies and verifies autonomously and stops only on three things: an intent contradiction, a broken invariant, or a failed test. Those three are what make full automation safe, so a repo with thin capture and no graduated tests shouldn't run it. See [`AGENTS.example.md`](AGENTS.example.md).
 
 ## Where files live
 

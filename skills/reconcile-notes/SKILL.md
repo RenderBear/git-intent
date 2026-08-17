@@ -1,6 +1,6 @@
 ---
 name: reconcile-notes
-description: Run on the integration branch after branches land — archive the notes of merged branches, invalidate the derived baseline, and report which of its claims the landing contradicted. Use this after merging a pull request or a queue of them, when the .branch-notes folder has grown, during repo housekeeping, before a release cut, or whenever the user asks to clean up branch notes. Also use when another skill reports the baseline is stale, since this is the step that keeps it honest.
+description: Run on the integration branch after branches land — archive the notes of merged branches, keep their invariants live (and graduate the durable ones to tests), invalidate the derived baseline, report which of its claims the landing contradicted, and with --notes turn a landed range into a changelog. Use this after merging a pull request or a queue of them, when the .branch-notes folder has grown, during repo housekeeping, before or at a release cut, or whenever the user asks to clean up branch notes or write release notes. Also use when another skill reports the baseline is stale, since this is the step that keeps it honest.
 ---
 
 # reconcile-notes
@@ -42,7 +42,14 @@ worth reporting rather than sweeping.
 /reconcile-notes --local        # local only — dangerous, see below
 /reconcile-notes --delete       # also act on never-landed notes, after confirming each
 /reconcile-notes --dry-run      # classify and report, archive nothing
+/reconcile-notes --notes        # changelog for the landed range (default: last tag..HEAD)
+/reconcile-notes --notes v2.3.0..HEAD --audience on-call
 ```
+
+`--notes` is the changelog mode. It shares this skill's home — the integration branch, after
+landing — and its input, the archive this skill fills, so it lives here rather than as its own
+skill. It can run standalone (just write notes) or as the last step of a reconcile (archive, then
+summarize what landed).
 
 The default requires a branch to be absent from **both** local and remote before its note is
 touched. `--remote` is the closer proxy for what a team considers real and is the right setting
@@ -137,6 +144,32 @@ git reset && git checkout -- .branch-notes/    # undo everything this did
 
 Commit housekeeping on its own. Mixing it into a feature commit makes both harder to review.
 
+## 2a. Keep the invariant live — and graduate the durable ones
+
+Archiving freezes the note's **prose**. It does **not** retire the note's `assert` invariants:
+they keep being checked, on the integration branch, against every later landing (that is what
+`semantic-scan --pre-land` reads). This is the reversal that lets a branch landing next month be
+stopped from silently undoing the one that just landed. Do nothing to disable them — the move to
+`_archive/` is not a retirement, and only a later dated `supersedes:` entry ever retires one.
+
+For an invariant the author marked as needing to guard code after landing, this is the moment its
+grep tripwire should **graduate to a test**. A tripwire escalates; a test hard-fails — and a
+property that must survive every future landing deserves the stronger form. Don't write the test
+silently: propose it, with the `why:` line as its reason, and let a human land it.
+
+```
+GRADUATE — invariants that must guard landed code
+  feature/rate-limit  a1  "limiter must wrap retries, not just first attempts"
+    tripwire: contains src/client.py:dispatch RateLimiter  (escalates on a rename)
+    → propose a test: retry-under-limit is counted. Currently uncovered — the
+      exact gap that let this ship green. Suggested: tests/test_client.py
+
+  Left as tripwires (not marked durable): 6 others.
+```
+
+This is a proposal, never an automatic write — a test is source, and I1 holds. Where no invariant
+was marked durable, say so in one line and move on; most branches won't have one.
+
 ## 3. Deleting requires a yes
 
 Never-landed notes are listed, never removed on your own initiative. Show what would go and
@@ -168,6 +201,42 @@ contradictions while the landing that caused them is still in view:
 - a `CODEOWNERS` or `.gitattributes` change, which is policy and deserves a human's eye
 
 Report these. Don't fix them by hand — regenerate.
+
+## 5. Writing the changelog — `--notes`
+
+A changelog generated from commit subjects is a list of commit subjects — written for the person
+who wrote the commits. The version worth shipping answers a different question: what is different
+for someone using this, and, where it isn't obvious, why. The second half is what git can't
+supply and the archive this skill fills can.
+
+```bash
+git describe --tags --abbrev=0                       # range defaults to <last tag>..HEAD
+git log --oneline v2.3.0..HEAD
+git log --merges --format='%h %s' v2.3.0..HEAD        # merge subjects carry branch names
+ls -R .branch-notes/_archive/                         # their notes live here after reconcile
+```
+
+If the repo has no tags, say so and ask for the range — "the last 40 commits" is not a release
+boundary. A range whose branches were never reconciled still has notes in `.branch-notes/` proper
+rather than `_archive/`; check both, and say which you had if the difference is large — a range
+where every branch has an archived note produces a substantially better changelog.
+
+**Group by what changed for the reader**, not by author or directory: *Added*, *Changed*,
+*Fixed*, *Deprecated/Removed*, and *Security* (always its own section, always first). One branch
+may land in several groups; twelve commits may collapse to one entry. `wip`, `address review`,
+and `fix lint` are not events in a reader's life.
+
+**Lead with what requires action**, derived from the diff rather than trusting labels — signature
+changes on public interfaces, removed config keys, changed defaults, migrations. A breaking change
+missing from the notes is the one failure of this document that costs someone their evening. Pull
+the *why* from the archived note only where it changes what the reader should do; the abandoned
+approach that led there is `onboard-file`'s, not the changelog's.
+
+`--audience` (`integrators`, `on-call`, `users`) changes what gets promoted, not just the tone: a
+library changelog leads with breaking changes, an internal service's leads with what on-call needs
+at 3am. Default to the reader who has to react to something. Say what was omitted (internal
+refactors, dep bumps) in one line — silently dropping them is fine; implying the list is
+exhaustive is not. "Internal changes only; no behavior differences" is a complete release note.
 
 ## Output
 
@@ -213,10 +282,27 @@ has a folder that is slightly untidy, not a problem. If the motivation is aesthe
 practical, archiving everything and deleting nothing is a defensible policy — say so when the
 delete list is short, which it usually is.
 
-**Archived notes are inputs, not sediment.** `release-notes` reads them for why each change
-happened; `onboard-file` reads them for why a file is shaped this way. The archive is the reason
-capture is worth doing at all, and treating it as a bin to be emptied defeats the system.
+**Archived notes are inputs, not sediment.** `--notes` reads them for why each change happened;
+`onboard-file` reads them for why a file is shaped this way; `semantic-scan --pre-land` reads
+their invariants to guard against later landings. The archive is the reason capture is worth doing
+at all, and treating it as a bin to be emptied defeats the system.
 
 **Never write policy.** A `CODEOWNERS` or `.gitattributes` change spotted here is reported to a
 human. Automated bookkeeping that could quietly alter merge policy would be the most dangerous
 thing in this repo.
+
+## Next — close the loop
+
+End by naming what the landing left open — a stale cache to regenerate, a durable invariant to
+graduate, a changelog to cut.
+
+```
+Next
+  · /baseline-scan             regenerate the cache this landing invalidated
+  · --notes                    cut the changelog for what just landed
+  · graduate a1, c7            propose tests for invariants marked durable (see §2a)
+  · git commit -m "chore: ..." commit the staged archive moves; undo printed above
+```
+
+List only what this run produced. A reconcile that archived nothing and found no contradictions
+should say so in a line, not manufacture a to-do list.
