@@ -1,6 +1,6 @@
 ---
 name: semantic-scan
-description: Find the conflicts git never reported — one branch changes a function's contract while another adds or modifies a caller depending on the old behavior, in different files, with no conflict markers, merging green and failing later. Also ranks branch pairs by exposure as triage, orders a merge queue by what depends on what (--order), and runs the pre-land gate that stops a branch from silently undoing a peer's or a landed branch's invariant. Use this after a merge that resolved suspiciously cleanly, before a release cut, before landing a long-running branch, when several branches are queued and you need a merge order, when tests pass but something feels off after integrating, or when the user asks what a merge might have broken silently or what to merge first.
+description: Find the conflicts git never reported — one branch changes a function's contract while another adds or modifies a caller depending on the old behavior, in different files, with no conflict markers, merging green and failing later. Also ranks branch pairs by exposure as triage, orders a merge queue by what depends on what (--order), and runs the pre-land check that stops a branch from quietly undoing a standing decision a peer or a landed branch made. Use this after a merge that resolved suspiciously cleanly, before a release cut, before landing a long-running branch, when several branches are queued and you need a merge order, when tests pass but something feels off after integrating, or when the user asks what a merge might have broken silently or what to merge first.
 ---
 
 # semantic-scan
@@ -18,14 +18,14 @@ The *analysis* here is the inverse of `collision-scan`. Where two branches touch
 | `collision-scan` | paths that **intersect** | will these collide when they land |
 | `semantic-scan` analysis | paths that are **disjoint** | did they break each other without colliding |
 
-That line governs the two *scans of in-flight work*. It does **not** govern the two *integration-time* modes, which sit above it and use the whole relationship, intersecting paths included — because "what must land first" and "does this landing break an invariant" don't care which side of the line a path is on.
+That line governs the two *scans of in-flight work*. It does **not** govern the two *integration-time* modes, which sit above it and use the whole relationship, intersecting paths included — because "what must land first" and "does this landing run into a standing decision" don't care which side of the line a path is on.
 
 Four modes, then:
 
 - **Exposure** — rank a whole repo's branch pairs by accumulated semantic risk. Cheap, no reasoning, runs over everything.
 - **Analysis** — trace contracts and dependents for one pair or one merge. Disjoint paths. Expensive, and worth spending only where exposure says to.
 - **Order** (`--order`) — for a queue of branches, report what depends on what so the same conflict isn't resolved four times. Uses path intersection.
-- **Pre-land** — the gate before a branch lands: does its merge result violate any invariant it, a live peer, or a landed branch committed to? Uses both.
+- **Pre-land** — before a branch lands, bring up every standing decision it runs into — its own, a live peer's, or one from landed work — for a call. Uses both.
 
 ## Invocation
 
@@ -36,12 +36,12 @@ Four modes, then:
 /semantic-scan branch-a branch-b        # a pair that hasn't merged yet
 /semantic-scan feature/billing-v2       # that branch against its integration target
 /semantic-scan --order a b hotfix/c     # order a queue by what depends on what
-/semantic-scan --pre-land               # gate: does landing this branch violate an invariant?
+/semantic-scan --pre-land               # what standing decisions does landing this run into?
 ```
 
 The two-branch and single-branch forms run *before* the merge, when the finding is still cheap. The default form runs after, which is when people think to ask.
 
-`--pre-land` is the gate the operating protocol runs before every landing — it evaluates the merge result against the invariant sets (§ *Pre-land gate* below) and is a `propose` gate: at automation level `assisted` it stops for a human on any violation, at `full` it proceeds and stops only on a violated invariant, an intent contradiction, or failed verification.
+`--pre-land` is what the operating protocol runs before every landing — it finds the standing decisions the merge runs into (§ *Pre-land* below) and is a `propose` gate: at automation level `assisted` every one goes to a person, at `full` the agent settles the ones it can defend and stops only where it can't tell, the two sides contradict, or verification fails.
 
 Before a release cut, use `--exposure` rather than walking every merge in the range. Scanning thirty merges to find the two that mattered is the cost the exposure ranking exists to avoid.
 
@@ -129,9 +129,9 @@ git diff -U0 $BASE..branch-a | grep '^@@'
 git show branch-a:.branch-notes/branch-a.md 2>/dev/null
 ```
 
-The note lives on the branch it describes, so read it through the ref. After landing it moves to `.branch-notes/_archive/<branch>.md` on the integration branch — check there too. Its *Must survive* line often names the invariant directly, which beats inferring it.
+The note lives on the branch it describes, so read it through the ref. After landing it moves to `.branch-notes/_archive/<branch>.md` on the integration branch — check there too. Its *Must survive* line often names the contract directly, which beats inferring it from the diff.
 
-Its `assert` block names the invariant *mechanically*. Each live entry is a contract the author committed to in a form one `git grep` can falsify, so evaluate them against the post-merge state before spending any effort inferring contracts from diffs — anchor first, and an anchor that no longer resolves is `unresolvable`, never a finding. A violated assertion is the one result this skill can report without hedging: it is not an inference about what a caller might depend on, it is the author's own written claim, broken.
+Its `assert` entries point you straight at where the author's standing decisions live — read those and their `why:` before spending effort inferring contracts from diffs. The anchor only tells you the side changed the flagged code; whether that broke the property is still yours to reason about. But a standing decision the author wrote down is the strongest thing you have to reason from: it's the person who made the change telling you, in writing, what it must not undo — far better than guessing what a caller might depend on.
 
 ### 3. Find dependents introduced by side B
 
@@ -188,11 +188,11 @@ checked: feature/billing-v2@8e8a927 develop@e094dde
 
 SHAs rather than a timestamp, because the question at ranking time is whether *this* state was examined, not whether some earlier state was. Compare the recorded pair against `git rev-parse` on both refs; unequal means re-analyze.
 
-## Pre-land gate
+## Pre-land — bringing up the standing decisions
 
-Run before a branch lands. Analysis asks "did these break each other?"; the gate asks the sharper, cheaper question "does landing *this* violate a promise someone made?" — and a promise is an invariant, the `assert` block from a note (see `capture-diff`). It is the check that makes parallel work safe: two agents in two worktrees can't silently undo each other, and a branch landing today can't silently undo one that landed last month.
+Run before a branch lands. Analysis asks "did these break each other?"; this asks the sharper, cheaper question "is this landing about to run into a decision someone already made?" — a standing decision, the `assert` entry on a note (see `capture-diff`). It is the check that makes parallel work safe: two agents in two worktrees can't quietly undo each other, and a branch landing today can't quietly undo one that landed last month.
 
-Evaluate the **merge result** against three sets of invariants, on the paths the landing touches:
+Find every standing decision whose anchor sits on a path this landing touches — from three places:
 
 ```bash
 # the landing branch's own note
@@ -202,38 +202,35 @@ git show "$BRANCH:.branch-notes/$BRANCH.md" 2>/dev/null
 git worktree list --porcelain
 git for-each-ref --format='%(refname:short)' refs/remotes/origin
 
-# every landed invariant on the integration branch
+# everything already landed on the integration branch
 find .branch-notes/_archive -name '*.md' 2>/dev/null
 ```
 
-Collect the **live** assertions from all three (an entry named by another's `supersedes:` is retired, not a requirement), and evaluate each against the post-merge state, anchor first:
+Take the **live** entries from all three (one named by another's `supersedes:` was replaced, so skip it). For each, check only whether its anchor sits in code this landing changed:
 
 ```bash
-git grep -qn '\bdispatch\b' -- src/client.py   || echo unresolvable   # anchor
-git grep -qn 'RateLimiter'  -- src/client.py   || echo violated       # predicate
+git grep -qn '\bdispatch\b' -- src/client.py || echo "a1: anchor moved — re-point it"
+git diff "$P1..$MERGE" -- src/client.py | grep -q . && echo "a1: landing touches the anchored code — bring it up"
 ```
 
-Scope by path intersection — the cache already holds each branch's path set, so this is a set operation, not a rescan. An invariant whose paths don't meet the landing's can't be violated by it.
+Scope by path intersection — the cache already holds each branch's path set, so this is a set operation, not a rescan. A decision whose anchor the landing doesn't touch can't be run into by it. And the grep never decides whether the property held — it only says the landing is in the same code someone flagged.
 
-Two-tier outcome, and the tier is the whole point:
-
-- **Tripwire (grep) violated** → *escalate*. Stop the landing, name the invariant and its `why:`, put it to a human. It is a proxy; hard-blocking a rename on it teaches people to switch the gate off.
-- **Graduated test fails** → *hard-fail*, like any test. The property earned its way from proxy to proof and now blocks on its own.
-- **`unresolvable`** → a **question, never a failure**. Every legitimate refactor moves an anchor. Name it for re-anchoring; do not block.
+For each decision the landing runs into, bring it up with its `why:` line, for one of three calls: it still holds, this change replaces it, or it no longer applies.
 
 ```
 PRE-LAND — feature/rate-limit → develop
-  own       a1  holds     RateLimiter still wraps dispatch
-  peer      —   refactor/payments-v2 (wt-payments): b2 unresolvable
-                  dispatch moved to transport.py; b2 needs re-anchoring, not a block
-  landed    c7  VIOLATED  feature/billing-v2 (landed 3wk ago) required charges to
-                  carry an idempotency key; this landing drops it on the retry path
-                  → escalate (assisted) — a human decides whether c7 still holds
+  own      a1  the limiter must wrap retries, not just first attempts
+               landing doesn't touch dispatch — nothing to decide
+  peer     b2  (refactor/payments-v2, wt-payments) anchor moved:
+               dispatch → transport.py — re-point b2, not a block
+  landed   c7  (feature/billing-v2, landed 3wk ago) charges must carry an
+               idempotency key — this landing changes the retry path that
+               builds them. Does c7 still hold?  →  a call is needed
 
-Level: assisted — landing stops here for a human.
+Level: assisted — the c7 question goes to a person before landing.
 ```
 
-Escalation obeys the automation level. `assisted` stops on every violation; `full` proceeds and stops only on a violated invariant, an intent contradiction, or failed verification. The only way a landed invariant is legitimately broken is a deliberate, dated `supersedes:` in the landing branch's note — that is `capture-diff`'s job, recorded, not this gate's to wave through.
+Who makes the call is the automation level. `assisted` brings every one to a person. `full` lets the agent settle the ones it can defend — it can show the property still holds, or a test covers it — and stops for a person only where it genuinely can't tell, where the two sides contradict, or where verification fails. A landed decision only ends one way: a deliberate, dated `supersedes:` in the landing branch's note (that's `capture-diff`'s job), never this check waving it through.
 
 ## Order — a queue by dependency (`--order`)
 
@@ -288,20 +285,20 @@ Recheck after each merge — every merge moves the target and stales the orderin
 
 **A finding is a question, not a fix.** Whether the new contract or the old caller is right is a decision about the requirement. Present it; don't resolve it.
 
-**The gate checks three sets, never one.** A pre-land run that evaluates only the landing branch's own invariants is theatre — the whole reason it exists is the peer and the landed branch it might undo. Checking your own promises and calling it safe is the failure this mode prevents.
+**Pre-land looks at three sets, never one.** A pre-land run that considers only the landing branch's own standing decisions is theatre — the whole reason it exists is the peer and the landed branch it might undo. Checking your own promises and calling it safe is the failure this mode prevents.
 
 **A dependency is a fact; an order is a preference.** `--order` reports the two cases where one branch *must* precede another and labels everything else a preference. Emitting a numbered sequence as though it were binding is how the output gets ignored the first time an approved PR is at the bottom of it.
 
 ## Next — close the loop
 
-End the run naming the next action and any unused mode. The modes chain: exposure points at which pair to analyze; analysis and the gate point at resolution or capture.
+End the run naming the next action and any unused mode. The modes chain: exposure points at which pair to analyze; analysis and pre-land point at resolution or capture.
 
 ```
 Next
   · /semantic-scan <a> <b>     analyze a specific high-exposure pair from the ranking
   · /resolve-conflicts         if landing this produces conflicts (--auto to apply, assisted to propose)
-  · /capture-diff              if a violated invariant is intentional — append a dated supersedes: entry
+  · /capture-diff              if your change overturns a standing decision on purpose — append a dated supersedes: entry
   · --order                    if there's a queue, not just this pair
 ```
 
-List only what applies: after a clean analysis, the useful next line is the pair to look at next or "nothing found"; after a violated gate, it's supersede-or-stop.
+List only what applies: after a clean analysis, the useful next line is the pair to look at next or "nothing found"; after a decision you're overturning, it's supersede-or-stop.

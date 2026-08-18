@@ -16,14 +16,14 @@ Seven core skills — one before a branch exists, six across a branch's life —
 |---|---|
 | `scope-work` | Arriving: scope an incoming request into independently-buildable units, decide what forks in parallel vs sequences, freeze the contract at each cut. Moment 0, before any branch |
 | `collision-scan` | Starting: find in-flight branches and worktrees (incl. uncommitted) working in the same code |
-| `capture-diff` | Working: author-side capture into `.branch-notes/<branch>.md` — what changed, why, and the invariant that must survive later work |
-| `review-diff` | Ready: PR/branch summaries for reviewers — risk-ordered or against a ticket; reports note drift and evaluates invariants |
-| `semantic-scan` | Landing: clean merges that broke behavior; `--order` for a queue; the `--pre-land` invariant gate |
+| `capture-diff` | Working: author-side capture into `.branch-notes/<branch>.md` — what changed, why, and the standing decision that must survive later work |
+| `review-diff` | Ready: PR/branch summaries for reviewers — risk-ordered or against a ticket; reports note drift and brings up the branch's standing decisions |
+| `semantic-scan` | Landing: clean merges that broke behavior; `--order` for a queue; the `--pre-land` check |
 | `resolve-conflicts` | Conflict: merge/rebase/cherry-pick/revert — reconstruct intent, compose, verify. Proposes; `--auto` applies |
-| `reconcile-notes` | Landed: archive landed notes (invariants stay live), invalidate the baseline, report what the merge made false; `--notes` for the changelog |
+| `reconcile-notes` | Landed: archive landed notes (standing decisions stay live), invalidate the baseline, report what the merge made false; `--notes` for the changelog |
 | `baseline-scan` | *Infrastructure* — compute what the repo is into `.git/intent/base.md`; the shared cache the loop reads |
 
-`semantic-scan` absorbed the former `merge-order` (`--order`) and the pre-land invariant gate; `reconcile-notes` absorbed the former `release-notes` (`--notes`). Both folds are because the absorbed skill ran at the same moment on the same substrate as its host — see [`SPEC.md`](SPEC.md) §6.
+`semantic-scan` absorbed the former `merge-order` (`--order`) and the pre-land check; `reconcile-notes` absorbed the former `release-notes` (`--notes`). Both folds are because the absorbed skill ran at the same moment on the same substrate as its host — see [`SPEC.md`](SPEC.md) §6.
 
 ## Layout
 
@@ -81,8 +81,8 @@ Most of these were bugs before they were conventions.
 - **`ours`/`theirs` are operation-dependent.** During a rebase they're inverted relative to a merge: `ours` is the upstream, `theirs` is your own commit being replayed. Any skill touching conflicts states which operation it's in before naming a side.
 - **`git status --porcelain`, not `git diff --name-only HEAD`**, to see what a worktree is doing right now. A file an agent created and never `git add`ed is untracked, and a diff against `HEAD` does not list it — which is most of what a few minutes of agent work looks like. The diff form silently reports a busy worktree as clean.
 - Prefer `git ls-files` over `find` — it respects `.gitignore` for free.
-- BSD `sed` (macOS) has no `\b`. Use `perl -pe` for word-boundary replacements in tooling, or the substitution silently does nothing. **`git grep` does support `\b`** on macOS — verified — which is what the §7.1 assertion predicates rely on.
-- **Assertions evaluate anchor-first.** Resolve the anchor, *then* the predicate. Anchor gone means `unresolvable`, never `violated` (I13) — every legitimate refactor moves an anchor, and a rename reported as a failure gets the whole check switched off (I16).
+- BSD `sed` (macOS) has no `\b`. Use `perl -pe` for word-boundary replacements in tooling, or the substitution silently does nothing. **`git grep` does support `\b`** on macOS — verified — which is what the §7.1 anchor matching relies on.
+- **A standing decision's anchor detects, it doesn't judge.** The `at:` anchor only notices when later work touches the same code; whether the property still holds is a person's or an agent's call, never a grep's (I13). An anchor that no longer resolves means "re-point it", never a failure and never a block — every real refactor moves anchors, and treating that as a failure gets the whole thing switched off (I16).
 
 ## Arguments
 

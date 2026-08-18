@@ -90,12 +90,13 @@ Operate like a careful human integrator, not a single-threaded editor.
   automatically, so parallel agents don't clobber each other's baseline.
 - **Before writing code:** collision-scan. If another worktree or live branch
   is already in these files, settle who owns what now, not at merge.
-- **While working:** capture-diff as you decide — and register the invariant
-  (Must survive) that keeps your work from being silently undone by someone
-  else's clean merge.
-- **Before landing:** semantic-scan --pre-land. Your merge result must violate
-  no invariant — your own, a live peer's, or a landed one. If it would, STOP
-  and escalate; never resolve an invariant you don't own.
+- **While working:** capture-diff as you decide — and write the "Must survive"
+  line, the one thing about this work that later changes must not quietly undo.
+- **Before landing:** semantic-scan --pre-land. It brings up every "Must survive"
+  line your change runs into — your own, a live peer's in another worktree, or
+  one from work that already landed. For each, decide: does it still hold, does
+  your change replace it, or does it no longer apply. How that decision gets
+  made is the automation level below.
 - **After landing:** reconcile-notes on the integration branch.
 
 Don't wait to be asked for any of these.
@@ -103,22 +104,24 @@ Don't wait to be asked for any of these.
 
 ## Automation level
 
-One line, and it governs how the `propose` gates behave — conflict resolution and any
-invariant-violating landing.
+This one line decides who makes the call when your change runs into a "Must survive" line someone
+wrote, or when a merge conflicts.
 
 ```markdown
 ## Automation level
 
-assisted (default) — propose gates stop for a human, who applies conflict
-                     resolutions and any invariant-violating landing.
-full               — agents apply and verify autonomously, and STOP for a human
-                     only on: an intent contradiction, a violated invariant, or
-                     failed verification. Never past those three.
+assisted (default) — ask a person. When a change runs into a "Must survive"
+                     line, or a merge conflicts, stop and lay out the options;
+                     a person decides.
+full               — decide it yourself where you can, and only stop for a
+                     person on three things: the two sides contradict, a "Must
+                     survive" line you can't show still holds, or the tests go
+                     red. Never quietly past those three.
 ```
 
-Start at `assisted`. Move to `full` once you trust the invariants and tests to be the backstop —
-they are what make full automation safe, so a repo with thin capture and no graduated tests should
-not be running `full`. A single command can still opt in with `resolve-conflicts --auto`.
+Start at `assisted`. Move to `full` once the "Must survive" lines and the tests are solid enough to
+lean on — they are what make full safe, so a repo with thin notes and few tests should stay at
+`assisted`. A single command can still opt in with `resolve-conflicts --auto`.
 
 ---
 

@@ -110,39 +110,28 @@ Re-run capture-diff before merging.
 
 Behavioral commits since the anchor mean `capture-diff` should append and re-anchor. Review nits mean re-anchoring alone. Either way this is a finding for the author, not something to fix silently — the note is their testimony and appending to it on their behalf is putting words in their mouth.
 
-### 2d. Evaluate the branch's own assertions
+### 2d. Bring up the branch's own standing decisions
 
-The note's `assert` block is what the author said had to survive, written so a command can falsify it. This is the last cheap moment to check — once the branch lands, a broken claim is a production question instead of a review comment.
+The note's `assert` entries are the standing decisions the author made — what must remain true (see `capture-diff`). This is the last cheap moment to look at them before the branch lands. Two simple things, and neither is a pass/fail check:
 
-Anchor first, then the predicate. That order is the whole design:
+1. **Does each anchor still resolve?** If the branch renamed or moved the anchored code, the `at:` location won't resolve any more. That isn't a failure — it means the anchor needs re-pointing. Flag it so the author appends an updated entry (that's `capture-diff`'s job; rewriting someone's note for them puts words in their mouth).
+
+2. **Did this branch change the anchored code?** If so, bring the decision up with its `why:` line, so the author confirms it before it ships. You are not deciding whether the property survived — a grep can only tell you the code changed; the author (or a reasoning agent) says whether it still holds.
 
 ```bash
-git grep -qn '\bdispatch\b' -- src/client.py   || echo "a1 unresolvable"   # anchor
-git grep -qn 'RateLimiter'  -- src/client.py   || echo "a1 violated"       # predicate
+git grep -qn '\bdispatch\b' -- src/client.py || echo "a1: anchor moved — re-point it"
+git diff "$BASE..HEAD" -- src/client.py | grep -q . && echo "a1: branch touched the anchored code — confirm still holds"
 ```
 
-Three verdicts, and the third is not a gentler second:
-
 ```
-ASSERTIONS
-  ✓ a1  contains src/client.py:dispatch RateLimiter
-  ✗ a2  absent RetryDecorator
-        reintroduced at src/retry.py:L14 — the note says this double-counted
-        every retried request
-  ? a3  contains src/client.py:validate_charge Money
-        anchor gone: src/client.py:validate_charge no longer resolves. Moved in
-        this branch? If so, supersede a3 rather than dropping it.
+STANDING DECISIONS
+  a1  the limiter has to wrap retries, not just first attempts
+      this branch changed src/client.py:dispatch — confirm it still holds
+  a2  charges must carry an idempotency key
+      anchor moved: validate_charge no longer at models.py — re-point (capture-diff)
 ```
 
-- **✓ holds** — anchor resolved, predicate true.
-- **✗ violated** — anchor resolved, predicate false. Quote the assertion's `why:` line alongside it; a predicate without its sentence is unarguable, and the sentence is the thing the author actually meant.
-- **? unresolvable** — the anchor is gone. A **question, not a failure.**
-
-Never report unresolvable as a failure and never block on one. Every legitimate refactor moves an anchor, and a rename that reads as a violation teaches people to skip the whole section — which costs the real violations too. If the answer is that the assertion should be superseded, that is `capture-diff`'s job and not this skill's; the note is the author's testimony and rewriting it for them is putting words in their mouth.
-
-Check only **live** assertions. An entry named by another entry's `supersedes:` is history, and evaluating it reports violations for claims that were deliberately retired.
-
-Report the scope limit where it matters: the needle is file-scoped even when the anchor names a symbol, so `contains src/client.py:dispatch RateLimiter` means both appear in that file — not that one encloses the other.
+Look at **live** entries only — one named by another's `supersedes:` was deliberately replaced, and bringing it up again just re-opens a settled decision.
 
 ### 3. Separate signal from noise
 
@@ -236,9 +225,9 @@ End by naming what review turned up that the author has to act on before landing
 ```
 Next
   · /capture-diff              if the note is missing, a stub, or behind the branch (re-anchor after review)
-  · /semantic-scan --pre-land  before landing — check invariants against peers and landed work
+  · /semantic-scan --pre-land  before landing — bring up standing decisions from peers and landed work
   · /resolve-conflicts         if the branch won't merge cleanly
   · <ticket text>              re-run as a requirement check if only a summary was produced
 ```
 
-List only what applies. On a clean, well-captured branch the useful next line is the pre-land gate; on one with a silent abandoned approach, it's capture.
+List only what applies. On a clean, well-captured branch the useful next line is the pre-land check; on one with a silent abandoned approach, it's capture.

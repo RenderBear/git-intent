@@ -78,7 +78,7 @@ A few things are worth turning on in a repo where several agents are working. Al
 
 **Live capture.** Copy the block from [`AGENTS.example.md`](AGENTS.example.md) into that repo's `CLAUDE.md`, `AGENTS.md`, or `.cursorrules`. This is what makes `capture-diff` record the approach you abandoned at 11am instead of losing it by Thursday — a decision being dropped leaves no git state, so no hook can catch it and no command can be scheduled for it. Only something already in the session can.
 
-**The parallel operating block.** The same [`AGENTS.example.md`](AGENTS.example.md) carries a heavier block for repos running agents in worktrees: one branch = one worktree, collision-scan before you write, the pre-land invariant gate before you land, reconcile after. It's what makes agents operate like careful integrators rather than trampling each other — and it's where you set the automation level (`assisted` by default, `full` once the invariants and tests are trustworthy enough to be the backstop).
+**The parallel operating block.** The same [`AGENTS.example.md`](AGENTS.example.md) carries a heavier block for repos running agents in worktrees: one branch = one worktree, collision-scan before you write, the pre-land check before you land, reconcile after. It's what makes agents operate like careful integrators rather than trampling each other — and it's where you set the automation level (`assisted` by default, `full` once the "Must survive" lines and tests are trustworthy enough to lean on).
 
 **Event nudges.** [`hooks/`](hooks/) ships `post-checkout` and `post-merge`, which print a one-line suggestion when a branch is created or work lands:
 
@@ -98,11 +98,11 @@ Seven skills — one before a branch exists, six from cutting it to landing it. 
 |---|---|
 | [`scope-work`](skills/scope-work/SKILL.md) | **Arriving.** Before any branch exists: is this request one unit of work or several independently-buildable ones? If several, which fork in parallel, which must sequence, and the contract each fork codes against. Won't fan out the steps of one unit, and won't fork two it can't hand a written contract |
 | [`collision-scan`](skills/collision-scan/SKILL.md) | **Starting.** Who else is working in your code and what they're trying to do, while it's still cheap to talk. Local worktrees first — including uncommitted work no remote scan sees — then live remote branches |
-| [`capture-diff`](skills/capture-diff/SKILL.md) | **Working.** What a branch changed and why, into `.branch-notes/<branch>.md` — the abandoned approach, the requirement, and the invariant that must survive later work. The one skill that writes testimony. Live during the work, or reconstructed on demand |
+| [`capture-diff`](skills/capture-diff/SKILL.md) | **Working.** What a branch changed and why, into `.branch-notes/<branch>.md` — the abandoned approach, the requirement, and the "Must survive" line: the standing decision later work must not quietly undo. The one skill that writes testimony. Live during the work, or reconstructed on demand |
 | [`review-diff`](skills/review-diff/SKILL.md) | **Ready.** Risk-ordered summary for reviewers — or, given a ticket, a requirement-by-requirement check. Also reports when the note is missing, a stub, or behind the branch |
-| [`semantic-scan`](skills/semantic-scan/SKILL.md) | **Landing.** Conflicts git never reported (a contract changes here, a caller depends on the old one there, merges green, fails in production); the pre-land gate that stops a branch from silently undoing a peer's or a landed branch's invariant; and `--order` for a merge queue. Ranks a whole repo by exposure before analyzing anything |
-| [`resolve-conflicts`](skills/resolve-conflicts/SKILL.md) | **Conflict.** Reconstructs what each side meant, composes both where compatible, verifies with tests. Proposes by default; `--auto` applies and verifies, stopping only on a contradiction, a broken invariant, or a red test. Merge, rebase, cherry-pick, revert, stash |
-| [`reconcile-notes`](skills/reconcile-notes/SKILL.md) | **Landed.** Archives the notes of branches that shipped, keeps their invariants live against later landings, invalidates the baseline, reports what the merge made false — and `--notes` cuts the changelog |
+| [`semantic-scan`](skills/semantic-scan/SKILL.md) | **Landing.** Conflicts git never reported (a contract changes here, a caller depends on the old one there, merges green, fails in production); the pre-land check that stops a branch from quietly undoing a standing decision a peer or a landed branch made; and `--order` for a merge queue. Ranks a whole repo by exposure before analyzing anything |
+| [`resolve-conflicts`](skills/resolve-conflicts/SKILL.md) | **Conflict.** Reconstructs what each side meant, composes both where compatible, verifies with tests. Proposes by default; `--auto` applies and verifies, stopping only when the two sides contradict, a standing decision can't be defended, or a test goes red. Merge, rebase, cherry-pick, revert, stash |
+| [`reconcile-notes`](skills/reconcile-notes/SKILL.md) | **Landed.** Archives the notes of branches that shipped, keeps their standing decisions live against later landings, invalidates the baseline, reports what the merge made false — and `--notes` cuts the changelog |
 
 Below the loop, one supporting role:
 
@@ -110,9 +110,9 @@ Below the loop, one supporting role:
 |---|---|
 | [`baseline-scan`](skills/baseline-scan/SKILL.md) | *Infrastructure.* What the repo is, computed — structure, hot and dormant areas, ownership, which files change together. The shared cache the loop reads; regenerates in seconds. Rarely run by hand |
 
-Every skill here touches the same substrate — the notes, the invariants, the coordination across parallel branches. General git utilities that don't (a file's blame story, bisecting a regression) are deliberately out of scope; they're better as their own tools.
+Every skill here touches the same substrate — the notes, the standing decisions, the coordination across parallel branches. General git utilities that don't (a file's blame story, bisecting a regression) are deliberately out of scope; they're better as their own tools.
 
-`collision-scan` and `semantic-scan`'s analysis look like neighbours and aren't. The first compares work whose paths **intersect** — will these collide when they land. The second's analysis compares work whose paths are **disjoint** — did they break each other without colliding. Each hands off by name when it sees the other's population. (`semantic-scan`'s `--order` and pre-land gate sit above that line and use both — see its SKILL.)
+`collision-scan` and `semantic-scan`'s analysis look like neighbours and aren't. The first compares work whose paths **intersect** — will these collide when they land. The second's analysis compares work whose paths are **disjoint** — did they break each other without colliding. Each hands off by name when it sees the other's population. (`semantic-scan`'s `--order` and pre-land check sit above that line and use both — see its SKILL.)
 
 ## What each skill takes
 
@@ -137,7 +137,7 @@ Every argument has a derived default, and every skill states which default it us
 
 A bare positional is the target branch everywhere except `semantic-scan --order`, where positionals are branch names and the target moves to `--target`. Passing requirement text to `review-diff` switches it from a risk-ordered summary to a clause-by-clause check. `reconcile-notes --notes --audience` takes `integrators`, `on-call`, or `users`, and changes what gets promoted rather than just the tone — a library changelog leads with breaking changes, an internal service's leads with what on-call needs at 3am.
 
-**`resolve-conflicts --auto` and the automation level.** By default every conflict resolution and every invariant-violating landing stops for a human (`assisted`). A repo can set `full` in its agent rule, or a single call can opt in with `--auto` — either way the agent applies and verifies autonomously and stops only on three things: an intent contradiction, a broken invariant, or a failed test. Those three are what make full automation safe, so a repo with thin capture and no graduated tests shouldn't run it. See [`AGENTS.example.md`](AGENTS.example.md).
+**`resolve-conflicts --auto` and the automation level.** By default every conflict resolution, and every landing that runs into a standing decision, stops for a person (`assisted`). A repo can set `full` in its agent rule, or a single call can opt in with `--auto` — either way the agent applies and verifies autonomously and stops only on three things: the two sides contradict, a standing decision it can't defend, or a failed test. Those three are what make full automation safe, so a repo with thin notes and few tests shouldn't run it. See [`AGENTS.example.md`](AGENTS.example.md).
 
 ## Where files live
 

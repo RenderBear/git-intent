@@ -11,7 +11,7 @@ small amount of state over git refs; every act of judgment is delegated to a ski
 **Scope: multi-agent work.** The payoff is largest when more than one agent touches a codebase —
 whether at the same time (two agents on two branches) or across time (one agent abandons an
 approach, and a later session, a different agent, or a reviewer picks up the branch). The first
-case is collision and semantic analysis — overlap, silent breaks, ordering, the pre-land gate. The second is testimony: a handoff of
+case is collision and semantic analysis — overlap, silent breaks, ordering, the pre-land check. The second is testimony: a handoff of
 reasoning that would otherwise be lost between sessions. A single agent on a single branch in one
 session needs almost none of this; every additional agent makes it matter more.
 
@@ -116,9 +116,9 @@ The note stops being perishable (nothing more will be appended), stops being bra
 now lives on the integration branch), and changes retrieval key — nobody remembers `sam/fix-2`
 in a year, so archived notes are found by the paths in their frontmatter, not by branch name.
 
-Archived notes feed the changelog (`reconcile-notes --notes`) and rung 2 above. Their invariants
-stay live and gate every later landing (§7.1.1, §7.3). They are the long-lived half of the system
-and the reason capture is worth doing.
+Archived notes feed the changelog (`reconcile-notes --notes`) and rung 2 above. Their standing
+decisions stay live — later landings still run into them (§7.1.1, §7.3). They are the long-lived
+half of the system and the reason capture is worth doing.
 
 ### 2.5 Policy — where git already reads it
 
@@ -172,10 +172,10 @@ against a fixed interface without seeing the other.
 This is the one skill that reasons about work that hasn't happened yet, so it runs on *predicted*
 surface (inferred from the request and the baseline), not a diff. That is a real limit and the
 output states it: the actual overlap and contract checks run once each fork has code, via
-`collision-scan` and the pre-land gate (§3.7a). What `scope-work` adds up front is the decision
+`collision-scan` and the pre-land check (§3.7a). What `scope-work` adds up front is the decision
 those skills can't make after the fact — the **contract-cut rule**: two units may fork in
 parallel only if the contract between them can be *written down now*. If it can't, they are
-entangled, and forking them schedules a `semantic-scan` finding for next week; sequence instead.
+entangled, and forking them lines up a `semantic-scan` finding for next week; sequence instead.
 Where the contract is statable, it is frozen as an artifact on the base both forks are cut from,
 so each codes against a fixed interface rather than against a moving sibling.
 
@@ -316,25 +316,29 @@ pair analysed yesterday whose side has moved ten commits since is stale in the o
 loses a finding. A ranking score is never a finding — "exposed" and "broken" are different
 claims, and conflating them turns the ranking into noise.
 
-### 3.7a Before landing — the invariant gate
+### 3.7a Before landing — bringing up the standing decisions
 
-The same population reasoning runs one more time, at the moment a branch is about to land, as a
-gate rather than an audit. `semantic-scan` evaluates the *merge result* against three sets of
-invariants (§7.1.1) on the intersecting paths:
+The same population reasoning runs one more time, at the moment a branch is about to land.
+`semantic-scan` looks at what the *merge result* touches and finds every standing decision
+(§7.1.1) whose anchor sits on those paths:
 
-- the landing branch's **own** live invariants;
+- the landing branch's **own**;
 - its **live peers'** — the branches (and worktrees) still in flight that share paths;
-- every **landed** invariant on the integration branch that touches those paths.
+- every **landed** one on the integration branch that touches those paths.
 
-A `holds → violated` transition is the gate. Tripwires *escalate* to a human; graduated tests
-*hard-fail* (§7.1.2). This is the single check that gives both properties the state model exists
-for: two agents in two worktrees can't silently undo each other (peer set), and a branch landing
-today can't silently undo one that landed last month (landed set). Path intersection scopes it —
-the cache already holds each branch's path set, so the gate reads a set operation, not a rescan.
+Each one it finds gets brought up, with its `why:` line, for a call: does it still hold, does this
+change replace it, or does it no longer apply. Nothing is judged by a grep — the anchor only says
+"your change is in the same code someone flagged", and a person or the agent decides from there.
+This is the single check that gives both things the state model exists for: two agents in two
+worktrees can't quietly undo each other (the peer set), and a branch landing today can't quietly
+undo one that landed last month (the landed set). Path intersection scopes it — the cache already
+holds each branch's path set, so this is a set operation, not a rescan.
 
-Escalation obeys the automation level (§4): `assisted` puts every violation and every non-trivial
-resolution to a human; `full` proceeds autonomously and stops only on a violated invariant, an
-intent-level contradiction, or a failed verification.
+Who makes the call is the automation level (§4.1). At `assisted`, every standing decision the
+landing touches — and every non-trivial conflict — goes to a person. At `full`, the agent decides
+on its own where it can defend the answer (it can show the property still holds, or a test covers
+it) and stops for a person only where it genuinely can't tell, or where the two sides contradict,
+or where verification fails.
 
 ### 3.7b Ordering a queue — `semantic-scan --order`
 
@@ -384,20 +388,21 @@ Deletion keeps its gate: it destroys reasoning that exists nowhere else.
 `propose` names *what* needs a human; the automation level names *whether one is there*. It is a
 repo-wide stance, set in the agent rule (§5), with a per-invocation override.
 
-- **`assisted`** (default) — every `propose` gate stops for a human. Conflict resolutions and
-  invariant-violating landings are emitted as reasoning plus exact commands; a person applies
-  them. This is the loop as a pull request.
-- **`full`** — agents apply and verify `propose` outcomes autonomously, and stop *only* on three
-  conditions: an **intent-level contradiction** (the two sides can't both hold), a **violated
-  invariant** (peer or landed, §3.7a), or **failed verification** (the composed result doesn't
-  pass both sides' tests). Never past those three.
+- **`assisted`** (default) — every `propose` gate stops for a person. Conflict resolutions, and any
+  standing decision a landing runs into, come out as reasoning plus exact commands; a person makes
+  the call. This is the loop as a pull request.
+- **`full`** — the agent applies and verifies `propose` outcomes on its own, and stops for a person
+  *only* on three things: the **two sides contradict** (they can't both hold), a **standing
+  decision it can't defend** (a landing runs into one and the agent can't show the property still
+  holds, §3.7a), or **verification fails** (the result doesn't pass both sides' tests). Never
+  quietly past those three.
 
 Full automation is safe precisely *because* those three are the backstop — `--auto` is not "trust
-the merge", it is "trust it unless a tripwire, a test, or an intent contradiction says stop". The
-per-command override is `resolve-conflicts --auto`, which selects `full` for that one resolution
-regardless of the repo default; there is no override in the other direction, because dropping to a
-human is always allowed. `auto` and `append` gates are unaffected — nothing there is destructive
-enough to need a human either way.
+the merge", it is "trust it unless the two sides contradict, a promise it can't defend is at stake,
+or a test goes red". The per-command override is `resolve-conflicts --auto`, which picks `full` for
+that one resolution regardless of the repo default; there is no override the other way, because
+dropping back to a person is always allowed. `auto` and `append` gates are unaffected — nothing
+there is destructive enough to need a person either way.
 
 ## 5. Transports
 
@@ -417,15 +422,14 @@ How a skill fires is pluggable. All optional, freely mixed, none required.
   the two files individually.
 - **CI.** `ci/` ships a POSIX script and a workflow example. This is the only transport that
   reaches the browser tab where review and merge happen. It runs the mechanical checks — note
-  present, not a stub, `captured_at` not drifted, invariants resolving — and comments. **Only a
-  *violated* tripwire fails the build** (anchor resolves, predicate false — a claim the author
-  said had to survive did not); drift and `unresolvable` anchors are comments, because a check
-  that blocks on a rename gets switched off. This is the CI reading of the two-tier rule (§7.1.2):
-  the red build *is* the escalation, and the PR is inherently human-gated, so a violated tripwire
-  blocking here is right where the same violation only pauses-and-asks in the interactive pre-land
-  gate. A **graduated test** fails the build too, but as an ordinary test, not through this
-  script. Provider-specific YAML is the one thing here that isn't plain git, so the logic lives in
-  the script and porting is a new wrapper.
+  present, not a stub, `captured_at` not drifted, anchors still resolving — and comments. In CI it
+  **never fails the build itself**: it comments when a PR touches the anchor of a standing decision
+  (here is what the author flagged and why — confirm it still holds), and comments when an anchor
+  no longer resolves (re-point it). CI can't judge whether a property still holds, so it brings the
+  decision to the reviewer rather than pretending to decide — the PR is already human-gated. A
+  real **test** for the property fails the build if it goes red, but as an ordinary test, not
+  through this script. Provider-specific YAML is the one thing here that isn't plain git, so the
+  logic lives in the script and porting is a new wrapper.
 
 A harness (a worktree manager) can also call skills directly; it needs only refs and SHAs, and
 re-derives everything from git at call time.
@@ -498,7 +502,7 @@ The limiter has to wrap retries, not just first attempts. This has to hold
 against any other branch that lands — a version that only limits first attempts
 passes tests and is wrong in production. If a refactor relocates dispatch, the
 limiter moves with it; if a later branch would reintroduce first-attempt-only
-limiting, that landing stops for a human.
+limiting, that comes up as a decision before it lands.
 
 ## Open
 Exhaustion behavior is unspecified and untested.
@@ -508,8 +512,8 @@ Exhaustion behavior is unspecified and untested.
 hold on the integration branch after **any** other work lands — the concurrent
 branch in the next worktree, and the branch that lands six weeks from now. That
 is why it replaced the earlier "must survive a conflict" framing: a textual
-conflict is one way the property breaks, and rarely the dangerous one. The
-lifecycle that enforces it across parallel and later work is §7.1.1.
+conflict is one way the property breaks, and rarely the dangerous one. How it
+carries across parallel and later work — as a standing decision — is §7.1.1.
 
 Dates under *Why this shape* are required — a reversal only means something against the attempt
 it reversed, and an undated list reads as simultaneous. Each entry marks its provenance:
@@ -524,77 +528,59 @@ archived note is grepping prose for a filename someone happened to type. Both ar
 computed from `git diff --name-only` and the `-U0` hunk headers. `merged` is left empty and
 filled by `reconcile-notes` on archive.
 
-**Invariants (optional).** The *Must survive* prose is what a human reads and an agent reasons
-from. A note may also carry the same claim in a form a command can check — an `assert` entry — so
-`review-diff`, `resolve-conflicts`, `semantic-scan`, and CI can flag when it stops holding:
+**The machine-readable half (optional).** The *Must survive* prose is the real content — what a
+person reads and an agent reasons from. A note can also carry the same claim in a form a command
+can find, an `assert` entry, so `review-diff`, `resolve-conflicts`, `semantic-scan`, and CI can
+bring it up when later work runs into it:
 
 ```yaml
 assert:
   - id: a1
     added: 2026-08-06
-    check: contains src/client.py:dispatch RateLimiter
+    at: src/client.py:dispatch     # where it lives — how later work knows it touched this
     why: the limiter has to wrap retries, not just first attempts
 ```
 
-Three predicates, each one grep: `exists <path>[:<symbol>]`, `contains <path>[:<symbol>]
-<needle>`, `absent <needle> [<pathspec>]`. The needle is file-scoped even when the anchor names a
-symbol — extracting a symbol's body is brittle in shell, and the value here is being one cheap
-grep, so it checks presence in the file, not enclosure. Report that limit where you report the
-result. The grep form is a **weak proxy** — it catches a name reappearing or vanishing, not a
-behavior changing — and durable protection graduates to a test (§7.1.2).
+The `at:` field is an **anchor**, and its only job is to notice when later work touches the same
+code. It does not decide whether the property still holds — a grep can tell you a change landed in
+`src/client.py:dispatch`, it cannot tell you the limiter still wraps retries. So the anchor
+notices; a person or an agent decides. (An earlier version put a `check:` predicate here and
+computed pass/fail from it. That was false precision — the grep matched a name, not the behavior,
+so it cried wolf on every rename and stayed silent on the real breaks. Gone.)
 
-### 7.1.1 The invariant lifecycle
+### 7.1.1 A standing decision, not a test
 
-An invariant is not a note about one merge; it has a life that spans the whole time the feature
-exists, and this is the part the old "survive a conflict" framing missed.
+A *Must survive* line is a **standing decision**: the author decided something — the limiter wraps
+retries — and that decision stands until some later change consciously overturns it. It does three
+things a test doesn't. It says what the feature is. It warns whoever works here next. And it asks
+for a decision when the future runs into it. That gives it a life across the whole time the feature
+exists:
 
-1. **Register** — `capture-diff` writes the prose and, where the survival answer is concrete, the
-   `assert` tripwire. Branch-local, checked against the author's own branch only (an assertion
-   already false at capture time is a mistranslation, not a finding — fix the predicate).
-2. **Check both directions** — before any branch lands, `semantic-scan`'s pre-land check (§3.6a)
-   evaluates the merge result against three sets of invariants on the intersecting paths: the
-   branch's own, its **live peers'** (the other worktree), and every **landed** invariant. A
-   `holds → violated` transition is the finding. This is what makes two agents in two worktrees
-   unable to silently undo each other, and a later branch unable to silently undo an older landed
-   one.
-3. **Graduate** — on landing, `reconcile-notes` moves the note to `_archive/`, and the invariant
-   **stays live** (§7.3). The prose freezes; the check does not. For a property that must guard
-   landed code, this is where the tripwire should become a committed test (§7.1.2).
-4. **Retire** — the only license to break a landed invariant is a later change that *deliberately*
-   supersedes the requirement it encoded. That is a human decision, recorded append-only with a
-   dated `supersedes:` (§7.1, below). Global intent changing is an explicit, signed retire — never
-   silent erosion by an unrelated refactor. This is the "unless in conflict" escape.
+1. **Written down.** `capture-diff` records the prose and, where the property lives somewhere
+   specific, the anchor — taken from the paths and symbols capture already has, never hand-typed.
+2. **Brought up when later work touches it.** Before a branch lands, `semantic-scan`'s pre-land
+   check (§3.7a) sees whether the merge touches the anchor of any standing decision — the branch's
+   own, a live peer's in another worktree, or one from work that already landed. If it does, that
+   decision gets brought up. Nothing is judged by a grep. This is what stops two agents in two
+   worktrees from quietly undoing each other, and a branch landing today from quietly undoing one
+   that landed last month.
+3. **Decided.** Whoever is landing makes one of three calls: *it still holds*, so proceed; *this
+   change replaces it*, so a new dated entry records the changed requirement; or *it no longer
+   applies*, so it's dropped, dated. Whether a person makes that call or the agent makes it on its
+   own is the automation level (§4.1) — `assisted` always asks a person, `full` lets the agent
+   decide when it can defend the answer and ask only when it genuinely can't tell.
+4. **Kept alive after landing.** `reconcile-notes` archives the note, but the standing decision
+   stays in force (§7.3) — later work still runs into it. The prose freezes; the decision doesn't
+   lapse on its own.
 
-### 7.1.2 Two-tier enforcement
+If the property is something a test can actually pin down, write the test. It lives in the suite
+and fails the build on its own, like any test — that isn't part of this, it's just the right tool
+when one exists. The standing decision carries the part a test can't, which is most of what matters
+here.
 
-The strength of the check tracks the quality of the evidence, because a check that blocks on a
-weak proxy gets switched off and takes the strong ones with it.
-
-- **Tripwire (grep)** — *escalates*. On a `holds → violated` transition it stops the landing and
-  puts the decision to a human (the `propose` gate, §4). It is a proxy; hard-blocking a rename on
-  it teaches people to ignore it.
-- **Graduated test** — *hard-fails*. Once the survival property is a committed test on the
-  integration branch, it is a test like any other: a landing that breaks it fails the build. No
-  new machinery — the property earned its way from proxy to proof.
-
-Not every invariant needs to graduate. Mark the ones that must guard code after landing; leave the
-rest as prose plus optional tripwire. Forcing a test on every branch is how the whole thing gets
-switched off.
-
-Evaluation is **anchor-first**, and this is the one rule that matters: resolve the anchor, *then*
-the predicate. Three outcomes —
-
-- **holds** — anchor resolved, predicate true.
-- **violated** — anchor resolved, predicate false. Something that had to survive did not.
-- **unresolvable** — the anchor is gone (renamed, extracted, moved). A **question, not a
-  failure**, and it never blocks. Every legitimate refactor moves an anchor, and a rename
-  reported as a violation teaches people to ignore violations, which costs the real ones.
-
-`capture-diff` writes the predicate from the paths and symbols it already has and puts the
-sentence in `why:`; a human is never asked to hand-write one. In its grep form it is a tripwire,
-not a test — a weak proxy that escalates rather than blocks (§7.1.2) — and no note is worse for
-having none. When the property must guard code after the branch lands, it graduates to a
-committed test at reconcile time; that is the form that hard-fails a later landing.
+When the anchor no longer resolves — a refactor renamed or moved the code — that is simply
+"re-point the anchor", never a failure and never a block (§8, I13). Every real refactor moves
+anchors, and treating that as a failure is how the whole thing gets switched off.
 
 ### 7.2 `.git/intent/base.md`
 
@@ -605,17 +591,16 @@ it read, since the reader can't see into `.git/` to judge the cache's age.
 ### 7.3 `.branch-notes/_archive/<branch>.md`
 
 Identical format, moved by `reconcile-notes` with `merged` filled, path mirrored. The **prose** is
-frozen — never rewritten after archiving, because it is the record of what shipped. The
-**invariant** is not: a landed note's `assert` entries keep being checked, on the integration
-branch, against every later landing (§7.1.1 step 3). This is the reversal from the first version
-of this spec, and the whole reason a later feature can't silently undo an older landed one.
+frozen — never rewritten after archiving, because it is the record of what shipped. The **standing
+decision** is not: a landed note's *Must survive* line stays in force, and later work still runs
+into it (§7.1.1 step 4). This is the reversal from the first version of this spec, and the whole
+reason a later feature can't quietly undo an older landed one.
 
-Two consequences follow. An archived tripwire that goes `unresolvable` after a legitimate rename
-is still a question, not a failure (§8, I13) — the same rule as for live branches, and the reason
-a frozen note isn't left permanently violated by the first refactor. And an archived invariant is
-only ever retired through a new, dated `supersedes:` entry appended by the branch that
-deliberately changes the requirement (§7.1.1 step 4) — never by editing the frozen note. The
-freeze protects the testimony; it does not silence the guard.
+Two things follow. An archived anchor that no longer resolves after a rename is just "re-point it",
+never a failure (§8, I13) — the same rule as for a live branch, and the reason a frozen note isn't
+stuck reading as broken after the first refactor. And a landed standing decision only ever ends
+one way: a new, dated entry in the branch that deliberately changes the requirement — never by
+editing the frozen note. The freeze protects the record; it doesn't retire the decision.
 
 ## 8. Invariants
 
@@ -642,19 +627,21 @@ Each names a way the layer could rot into something worse than nothing.
   `--git-common-dir`.
 - **I12** Branch relevance is ranked by liveness, never filtered by date, and whatever falls
   below a cut is counted in the output, not dropped.
-- **I13** An assertion whose anchor no longer resolves is `unresolvable`, never `violated`, and
-  never blocks.
-- **I14** A landed invariant stays checked. Archiving freezes a note's prose but not its `assert`
-  entries, which gate every later landing until explicitly superseded (§7.1.1, §7.3).
-- **I15** The pre-land gate checks all three invariant sets — the landing branch's own, its live
-  peers', and every landed one — on the intersecting paths, never the branch's own alone. Checking
-  only your own is how a branch silently undoes work it didn't touch.
-- **I16** Enforcement tracks evidence: a grep tripwire escalates to a human, a graduated test
-  hard-fails. Neither hard-blocks on `unresolvable`. A check that blocks on a rename gets disabled,
-  and takes the real findings with it.
-- **I17** Full automation stops for a human on exactly three conditions — intent contradiction,
-  violated invariant, failed verification — and never silently past them. The three are the reason
-  `--auto` is safe, not a fallback for when it isn't.
+- **I13** A standing decision's anchor only detects that later work touched the same code; it
+  never decides whether the property still holds. A grep matches a name, not a behavior — the
+  judgment is a person's or an agent's, never the anchor's.
+- **I14** A landed standing decision stays in force. Archiving freezes a note's prose but not its
+  *Must survive* line, which later landings still run into until a dated entry deliberately ends it
+  (§7.1.1, §7.3).
+- **I15** The pre-land check looks at all three sets — the landing branch's own standing decisions,
+  its live peers', and every landed one — on the intersecting paths, never the branch's own alone.
+  Checking only your own is how a branch quietly undoes work it didn't touch.
+- **I16** An anchor that no longer resolves means "re-point it", never a failure, and never blocks.
+  Every real refactor moves anchors, and treating that as a failure gets the whole thing switched
+  off.
+- **I17** Full automation stops for a person on exactly three things — the two sides contradict, a
+  standing decision it can't defend, or verification fails — and never quietly past them. Those
+  three are why `--auto` is safe, not a fallback for when it isn't.
 
 ## 9. Open questions
 
@@ -670,11 +657,12 @@ saying so. A PR-open webhook would detect it and is exactly the service §1 rule
 a thing a human triggers by running `/capture-diff` or `/review-diff` when they were going to
 anyway.
 
-**Can the author name the invariant that will matter?** The pre-land gate (§3.7a) and full
+**Can the author name the decision that will matter?** The pre-land check (§3.7a) and full
 automation (§4.1) lean on the *Must survive* line being the property a future, unforeseen branch
 will endanger. But the dangerous case is the collision nobody predicted — and an author who could
-foresee which invariant a later refactor would break would often just harden the code instead. So
-the line is strongest exactly where danger is lowest, and the graduated test (§7.1.2) is the
-partial answer: a property worth a committed test survives being un-foreseen, where a prose
-sentence written against the wrong future does not. How often the registered invariant is the one
-that actually matters is, like capture itself, worth measuring rather than assuming.
+foresee which property a later refactor would break would often just harden the code instead. So
+the line is strongest exactly where danger is lowest, and writing a test for it where one fits
+(§7.1.1) is the partial answer: a property worth a committed test survives being un-foreseen,
+where a prose sentence written against the wrong future does not. How often the standing decision
+someone wrote is the one that actually matters is, like capture itself, worth measuring rather
+than assuming.

@@ -26,7 +26,7 @@ Getting this wrong is expensive in a specific way. Two units that secretly share
 /scope-work --dispatch              # under `full`: hand the plan to the runtime to spawn forks
 ```
 
-Default is `--plan-only`: produce the scope and the setup, let a human or the runtime start any forks. `--dispatch` is honored only at automation level `full` (see `AGENTS.md`), and even then a violated contract-cut (below) drops back to proposing.
+Default is `--plan-only`: produce the scope and the setup, let a human or the runtime start any forks. `--dispatch` is honored only at automation level `full` (see `AGENTS.md`), and even then a fork whose contract can't be stated (below) drops back to proposing.
 
 ## Workflow
 
@@ -70,7 +70,7 @@ For any parallel fork that shares a to-be-built interface, the contract has to b
 
 - an interface stub or type signature,
 - a short spec file, or
-- an invariant registered with `capture-diff` on the base, so the pre-land gate can check neither fork drifted from it.
+- a standing decision registered with `capture-diff` on the base, so the pre-land check brings it up if either fork drifts from it.
 
 This skill **proposes** the artifact; it does not author tracked source itself (that is I1, and it holds here as everywhere). The source stub or spec is emitted as part of the plan for a gated step to commit; the invariant form goes through `capture-diff`, which is the one skill allowed to write. Either way the artifact lands on the base *before* dispatch — that ordering is the point. And if you can't produce the artifact, step 4 already told you not to fork; this step is only where "statable" becomes "stated."
 
@@ -145,7 +145,7 @@ End by naming what each fork does next — this is moment 0, so the footer point
 ```
 Next
   · per fork: /collision-scan   confirm the predicted surface against what's really in flight
-  · per fork: /capture-diff     record intent + the invariant, coding against the frozen contract
+  · per fork: /capture-diff     record the reasoning + the "Must survive" line, coding against the frozen contract
   · /semantic-scan --order      confirm the merge order before landing the set
   · --dispatch                  under `full`, hand the plan to the runtime to spawn the forks
 ```

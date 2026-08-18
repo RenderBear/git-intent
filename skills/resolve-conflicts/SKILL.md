@@ -1,6 +1,6 @@
 ---
 name: resolve-conflicts
-description: Resolve conflicts from a merge, rebase, cherry-pick, revert, or stash pop by reconstructing what each side was trying to do, composing both intents where they are compatible, and verifying the result against both sides' tests. Proposes by default (a human applies); --auto applies and verifies autonomously, stopping only on an intent contradiction, a violated invariant, or failed verification. Use this whenever git reports unmerged paths, conflict markers exist in the working tree, or a merge or rebase has stopped. Requires an operation in progress with real conflicts — with a clean tree there is nothing to resolve and the skill says so and stops.
+description: Resolve conflicts from a merge, rebase, cherry-pick, revert, or stash pop by reconstructing what each side was trying to do, composing both intents where they are compatible, and verifying the result against both sides' tests. Proposes by default (a human applies); --auto applies and verifies autonomously, stopping only when the two sides contradict, a standing decision it can't defend is at stake, or verification fails. Use this whenever git reports unmerged paths, conflict markers exist in the working tree, or a merge or rebase has stopped. Requires an operation in progress with real conflicts — with a clean tree there is nothing to resolve and the skill says so and stops.
 ---
 
 # resolve-conflicts
@@ -18,11 +18,11 @@ reasoning, and the verification result, and a human writes it into the tree. Tha
 level `assisted`, and it is the default because a plausible-looking wrong resolution passes review
 — which is exactly what makes it expensive.
 
-**`--auto` (or a repo set to `full`) applies and verifies autonomously** — and stops for a human on
-exactly three conditions: an **intent contradiction** (the two sides can't both hold), a
-**violated invariant** (either side's `assert`, or a landed one, breaks against the composition),
-or **failed verification** (the composed result doesn't pass both sides' tests). Never past those
-three. Full automation is safe *because* of that backstop, not in spite of it: `--auto` is not
+**`--auto` (or a repo set to `full`) applies and verifies autonomously** — and stops for a person on
+exactly three things: the **two sides contradict** (they can't both hold), a **standing decision it
+can't defend** (either side's, or a landed one, whose code the composition changed and the agent
+can't show still holds), or **failed verification** (the composed result doesn't pass both sides'
+tests). Never past those three. Full automation is safe *because* of that backstop, not in spite of it: `--auto` is not
 "trust the merge", it is "apply it unless a contradiction, a broken promise, or a red test says
 stop". Everything below runs identically in both modes up to step 7 — the reconstruction, the
 composition, the verification are the same work; only who commits the result differs.
@@ -253,42 +253,41 @@ This frequently cannot be done fully, and pretending otherwise is worse than adm
 Fixtures diverge. Migrations conflict. The code most likely to produce an ugly conflict is the
 code least likely to have tests.
 
-**Both sides' `assert` blocks are the cheap half of this, and they run where the tests don't.**
-Each entry is what that branch's author said had to survive — which is the exact
-question in front of you — written so one command can falsify it. Collect the live assertions
-from both notes (an entry named by another's `supersedes:` is history, not a requirement) and
-evaluate each against the **composed** content, anchor first:
+**Both sides' standing decisions are the cheap half of this.** Each `assert` entry is what that
+branch's author said had to survive — which is the exact question in front of you. Take the live
+entries from both notes (one named by another's `supersedes:` was replaced, so skip it) and, for
+each, check whether your composition changed the code its anchor sits on:
 
 ```bash
-git grep -qn '\bdispatch\b' -- src/client.py   || echo unresolvable   # anchor
-git grep -qn 'RateLimiter'  -- src/client.py   || echo violated       # predicate
+git grep -qn '\bdispatch\b' -- src/client.py || echo "a1: anchor moved — re-point after applying"
+# else: did the composition touch the anchored code? if so, this decision needs a call
 ```
 
-An assertion that held on its own side and fails against your composition is the strongest
-finding this skill produces: it is that branch's author, in writing, saying the thing you just
-did was not allowed.
+The grep never says whether the property held — it only tells you your composition landed in the
+same code the author flagged. When it did, that decision is the sharpest thing to reason about:
+it is that branch's author, in writing, telling you what the composition must not break. Reason
+about whether it still holds, and where you can't be sure, say so and put it to a person.
 
-Unresolvable has to stay separate from violated, and here more than anywhere — relocating code
-*is* frequently the composition, so anchors move constantly and calling that a violation would
-turn the section into noise on its first run. Report it as a question and name the assertion that
-needs re-anchoring once the resolution lands.
-
-Where a side has no note, or a note with no assertions, say that rather than reporting zero
-violations. Zero checks and zero failures look identical in a summary and mean opposite things.
+Where a side has no note, or no standing decisions, say that rather than implying everything is
+fine. "Nothing flagged" and "nothing checked" look the same in a summary and mean opposite things.
 
 ```
 VERIFIED
   ours/test_client.py        14 passed
   theirs/test_dispatcher.py   9 passed
-  assert a1 (ours)           holds — RateLimiter still present in client.py
+
+STANDING DECISIONS
+  a1 (ours)    the limiter must wrap retries — composition keeps it inside
+               dispatch; still holds
+  b2 (theirs)  anchor moved: this resolution put dispatch in transport.py —
+               re-point b2 after applying, not a block
+  c7 (theirs)  charges must carry an idempotency key — the composition changes
+               the retry path. Can't confirm from reading alone → a person decides
 
 NOT VERIFIED
   Retry-under-limit behavior. Neither suite covers exhaustion; the composed
   limiter changes what happens there. This is the case both sides were most
   likely to get wrong and it is currently untested.
-  assert b2 (theirs)         unresolvable — this resolution moved dispatch into
-                             transport.py; re-anchor after applying
-  theirs                     no assertions in the note — 0 checked, not 0 failed
 ```
 
 An unverifiable claim reported as unverified is a useful output. An unverifiable claim reported
@@ -309,11 +308,12 @@ what a human reviewing an already-applied merge will skim.
 **`--auto` / full.** Only here does the skill write. The gate is the three conditions from the
 top, checked in this order before anything is applied:
 
-1. **Intent contradiction** — step 4 classified a conflict as *Contradictory*. Stop; this is a
+1. **The two sides contradict** — step 4 classified a conflict as *Contradictory*. Stop; this is a
    product decision, not a merge.
-2. **Violated invariant** — step 6 found a live `assert` (either side, or a landed one) that
-   holds on its own side and fails against the composition. Stop; that is an author, in writing,
-   saying the composition is not allowed. `unresolvable` does **not** stop — it is a question.
+2. **A standing decision you can't defend** — step 6 found a live one (either side, or a landed
+   one) whose anchored code your composition changed, and you can't show the property still holds.
+   Stop and put it to a person; that is an author, in writing, telling you what the composition
+   must not break. An anchor that merely *moved* does **not** stop you — re-point it and carry on.
 3. **Failed verification** — both sides' tests don't pass against the composed content, or the
    code that would verify the dangerous path doesn't exist. Stop; an unverifiable resolution
    applied silently is the exact failure this skill exists to prevent.
@@ -360,16 +360,16 @@ condition list is wrong, not the mode.
 
 ## Next — close the loop
 
-End by naming the continuation and what a violated invariant needs — a stopped resolution is a
+End by naming the continuation and what a stopped resolution needs — a stopped resolution is a
 decision waiting on a person, and the footer says whose and about what.
 
 ```
 Next
   · git <op> --continue        the operation's own continuation (not always merge --continue)
   · /capture-diff              record why the composition took the shape it did — it's a decision
-  · /semantic-scan --pre-land  re-check invariants against the resolved result before landing
+  · /semantic-scan --pre-land  bring up the standing decisions the resolved result runs into
   · --auto                     apply this resolution autonomously (or drop --auto to propose)
 ```
 
-After a contradiction or a violated invariant, the useful next line is who decides and what the
-supersede would say — not a git command.
+After a contradiction, or a standing decision you can't defend, the useful next line is who decides
+and what the supersede would say — not a git command.

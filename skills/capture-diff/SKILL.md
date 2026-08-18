@@ -1,6 +1,6 @@
 ---
 name: capture-diff
-description: Record what a branch changed and why into .branch-notes/<branch>.md — the requirement it serves, the constraint that forced the design, the approach that was tried and dropped, and the invariant that must survive later work (any branch that lands, in parallel or afterward). Use this after completing a unit of work on a branch, when an approach is abandoned or reversed, when an external constraint turns out to force a design decision, when a requirement is clarified mid-work, and before opening a pull request. Do not wait to be asked — the moment a decision is made is the only moment its reasoning is free to record. Also use when the user runs /capture-diff or asks to write up what a branch did.
+description: Record what a branch changed and why into .branch-notes/<branch>.md — the requirement it serves, the constraint that forced the design, the approach that was tried and dropped, and the standing decision that must survive later work (any branch that lands, in parallel or afterward). Use this after completing a unit of work on a branch, when an approach is abandoned or reversed, when an external constraint turns out to force a design decision, when a requirement is clarified mid-work, and before opening a pull request. Do not wait to be asked — the moment a decision is made is the only moment its reasoning is free to record. Also use when the user runs /capture-diff or asks to write up what a branch did.
 ---
 
 # capture-diff
@@ -108,7 +108,7 @@ In retrospective mode, present the derived summary and anything step 3 turned up
 
 > When another branch lands — now or in six weeks — what about this must still be true?
 
-Ask it about *any* later work, not one foreseen conflict. The dangerous case is the branch nobody predicted, in a file this one never touches, that quietly invalidates the behavior — so the answer worth having is the invariant, not the collision. That answer is the highest-value line in the file. Everything else is derivable now or reconstructable later; that one is available only from whoever made the decision, and only until they forget. It is also the only answer that becomes machine-checkable — step 5b turns it into an assertion that gates every later landing (parallel or sequential), which is what lets anything downstream find out it stopped being true.
+Ask it about *any* later work, not one foreseen conflict. The dangerous case is the branch nobody predicted, in a file this one never touches, that quietly invalidates the behavior — so the answer worth having is the property that must hold, not the collision. That answer is the highest-value line in the file. Everything else is derivable now or reconstructable later; that one is available only from whoever made the decision, and only until they forget. It also becomes a standing decision — step 5b anchors it so later work, parallel or sequential, runs into it instead of quietly undoing it.
 
 Ask a second question only if the branch has no reachable requirement and no informative commit messages, in which case: what is this for?
 
@@ -132,7 +132,7 @@ symbols:
 assert:
   - id: a1
     added: 2026-08-06
-    check: contains src/client.py:dispatch RateLimiter
+    at: src/client.py:dispatch
     why: the limiter has to wrap retries, not just first attempts
 ---
 
@@ -180,41 +180,33 @@ If that returns commits, the note is behind the branch. Append and re-anchor rat
 
 `paths` and `symbols` must be written **now**, not derived later. Once a branch is squash-merged and deleted, the commits do not survive verbatim and the branch-to-files mapping is unrecoverable — after which finding this note means grepping prose for a filename someone happened to type, and "moved the limiter inside dispatch" is invisible to a search for `src/client.py`.
 
-### 5b. Turn the survival answer into an assertion
+### 5b. Anchor the standing decision
 
-The sentence under *Must survive* is what a human reads. The `assert` entry is the same claim written so a command can falsify it, and **writing it is this skill's job**. Asking anyone to type `contains src/client.py:dispatch RateLimiter` by hand ends adoption in a week.
+The sentence under *Must survive* is a **standing decision** — you decided the limiter wraps retries, and that stands until some later change consciously overturns it. The prose is what a person reads and reasons from; that's the real thing. The `assert` entry adds one machine-readable field so later work can *notice* it ran into this decision — and **filling it in is this skill's job**, not the user's.
 
-This assertion has a life beyond your branch, and that is the point. `semantic-scan`'s pre-land check evaluates it against every *other* branch about to land — the peer in the next worktree, and the branch that lands months from now — and after your branch lands, `reconcile-notes` keeps it checked on the integration branch rather than freezing it. So you are not writing a note about one merge; you are registering a property that guards this code against all later work. Write it that way: name what must remain true, not what one specific merge might do.
+That entry is not a test and doesn't try to be. It carries a `why:` sentence and an `at:` anchor — a path or symbol where the decision lives. The anchor's whole job is so that when a later branch changes the same code, `semantic-scan`'s pre-land check brings this decision up for a call, along with your `why:`. It does not check whether the property still holds — a grep matches a name, not a behavior. Naming a location so the future gets a heads-up is all it's for.
 
-In its grep form it is a tripwire, not a test — a weak proxy, one grep for a name in a file, that catches a name reappearing or vanishing, not a behavior changing. It *escalates* rather than blocks: a `holds → violated` transition puts the landing to a human, it doesn't fail the build. Don't labor over it and don't trust it to prove behavior; that is what the suite is for. When the property genuinely must guard this code after landing, say so in the note — `reconcile-notes` prompts to graduate it into a committed test at that point, and the test is the form that hard-fails a later landing. The prose sentence is the real record; the tripwire is a bonus that costs one line; the test is where it earns its keep.
-
-Three predicates, no others:
-
-```
-exists   src/client.py:dispatch
-contains src/client.py:dispatch RateLimiter
-absent   RetryDecorator
+```yaml
+assert:
+  - id: a1
+    added: 2026-08-06
+    at: src/client.py:dispatch
+    why: the limiter has to wrap retries, not just first attempts
 ```
 
-Each is one `git grep`. Take the anchor from `symbols`, which step 2 already computed, and put the user's own words in `why:` — that sentence is what makes the translation auditable when both land in the PR diff.
+Take the `at:` value straight from the `symbols` (or `paths`) step 2 already computed. Write it against all later work, not one merge: name where the decision lives and, in `why:`, what must remain true — the peer in the next worktree and the branch that lands months from now both run into it, and after your branch lands `reconcile-notes` keeps it in force rather than dropping it.
 
-Verify it holds before writing it:
+Not every branch has one. If the honest answer to the survival question is "nothing in particular", write the prose (or skip it too) and leave `assert` out. A made-up standing decision is worse than none, because it will keep interrupting later work for nothing.
 
-```bash
-git grep -qn '\bdispatch\b' -- src/client.py && git grep -qn 'RateLimiter' -- src/client.py
-```
+If the property is something a **test** can actually pin down, write the test instead — it lives in the suite and fails the build on its own. The standing decision is for the part a test can't, which is most of what matters here.
 
-An assertion that is already false at capture time is a mistranslation, not a finding. Fix the predicate; never record a violation against your own branch.
-
-Not every branch has one. If the honest answer to the survival question is "nothing in particular", write the prose and skip the block. A fabricated assertion is worse than none, because something will check it.
-
-When a later round legitimately moves an anchor — function renamed, module split — append a new entry and leave the old one alone:
+When a later round moves the code — function renamed, module split — append a new entry pointing at the new location and leave the old one alone:
 
 ```yaml
   - id: a2
     added: 2026-09-02
     supersedes: a1
-    check: contains src/transport.py:send RateLimiter
+    at: src/transport.py:send
     why: dispatch moved to transport.py; the requirement is unchanged
 ```
 

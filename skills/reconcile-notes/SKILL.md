@@ -1,6 +1,6 @@
 ---
 name: reconcile-notes
-description: Run on the integration branch after branches land — archive the notes of merged branches, keep their invariants live (and graduate the durable ones to tests), invalidate the derived baseline, report which of its claims the landing contradicted, and with --notes turn a landed range into a changelog. Use this after merging a pull request or a queue of them, when the .branch-notes folder has grown, during repo housekeeping, before or at a release cut, or whenever the user asks to clean up branch notes or write release notes. Also use when another skill reports the baseline is stale, since this is the step that keeps it honest.
+description: Run on the integration branch after branches land — archive the notes of merged branches, keep their standing decisions live (and offer a test where one fits), invalidate the derived baseline, report which of its claims the landing contradicted, and with --notes turn a landed range into a changelog. Use this after merging a pull request or a queue of them, when the .branch-notes folder has grown, during repo housekeeping, before or at a release cut, or whenever the user asks to clean up branch notes or write release notes. Also use when another skill reports the baseline is stale, since this is the step that keeps it honest.
 ---
 
 # reconcile-notes
@@ -144,31 +144,31 @@ git reset && git checkout -- .branch-notes/    # undo everything this did
 
 Commit housekeeping on its own. Mixing it into a feature commit makes both harder to review.
 
-## 2a. Keep the invariant live — and graduate the durable ones
+## 2a. Keep the standing decisions live — and offer a test where one fits
 
-Archiving freezes the note's **prose**. It does **not** retire the note's `assert` invariants:
-they keep being checked, on the integration branch, against every later landing (that is what
+Archiving freezes the note's **prose**. It does **not** end the note's standing decisions: later
+work still runs into them, on the integration branch, for as long as the code exists (that is what
 `semantic-scan --pre-land` reads). This is the reversal that lets a branch landing next month be
-stopped from silently undoing the one that just landed. Do nothing to disable them — the move to
-`_archive/` is not a retirement, and only a later dated `supersedes:` entry ever retires one.
+stopped from quietly undoing the one that just landed. Do nothing to disable them — the move to
+`_archive/` isn't an ending, and only a later dated `supersedes:` entry ever ends one.
 
-For an invariant the author marked as needing to guard code after landing, this is the moment its
-grep tripwire should **graduate to a test**. A tripwire escalates; a test hard-fails — and a
-property that must survive every future landing deserves the stronger form. Don't write the test
-silently: propose it, with the `why:` line as its reason, and let a human land it.
+Most standing decisions stay exactly as they are: an anchor and a `why:`, brought up when later
+work touches them. But some describe a property a **test** could actually pin down — and for those,
+landing is the natural moment to offer one. A test fails the build on its own, which is stronger
+than a heads-up, so where the property is testable it's worth having. Don't write it silently:
+propose it, with the `why:` line as its reason, and let a person land it.
 
 ```
-GRADUATE — invariants that must guard landed code
+WORTH A TEST — properties a test could pin down
   feature/rate-limit  a1  "limiter must wrap retries, not just first attempts"
-    tripwire: contains src/client.py:dispatch RateLimiter  (escalates on a rename)
-    → propose a test: retry-under-limit is counted. Currently uncovered — the
-      exact gap that let this ship green. Suggested: tests/test_client.py
+    → propose tests/test_client.py: retry-under-limit is counted. Currently
+      uncovered — the exact gap that let this ship green.
 
-  Left as tripwires (not marked durable): 6 others.
+  Kept as standing decisions (not cleanly testable): 6 others.
 ```
 
-This is a proposal, never an automatic write — a test is source, and I1 holds. Where no invariant
-was marked durable, say so in one line and move on; most branches won't have one.
+This is a proposal, never an automatic write — a test is source, and I1 holds. Most branches won't
+have one that fits; say so in a line and move on.
 
 ## 3. Deleting requires a yes
 
@@ -283,7 +283,7 @@ practical, archiving everything and deleting nothing is a defensible policy — 
 delete list is short, which it usually is.
 
 **Archived notes are inputs, not sediment.** `--notes` reads them for why each change happened;
-`semantic-scan --pre-land` reads their invariants to guard against later landings; rung 2 of a
+`semantic-scan --pre-land` reads their standing decisions to guard against later landings; rung 2 of a
 conflict resolution reads them for the incoming side's intent. The archive is the reason capture is worth doing
 at all, and treating it as a bin to be emptied defeats the system.
 
@@ -293,14 +293,14 @@ thing in this repo.
 
 ## Next — close the loop
 
-End by naming what the landing left open — a stale cache to regenerate, a durable invariant to
-graduate, a changelog to cut.
+End by naming what the landing left open — a stale cache to regenerate, a standing decision worth a
+test, a changelog to cut.
 
 ```
 Next
   · /baseline-scan             regenerate the cache this landing invalidated
   · --notes                    cut the changelog for what just landed
-  · graduate a1, c7            propose tests for invariants marked durable (see §2a)
+  · propose test for a1, c7    where a standing decision is cleanly testable (see §2a)
   · git commit -m "chore: ..." commit the staged archive moves; undo printed above
 ```
 
