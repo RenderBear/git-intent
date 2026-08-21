@@ -385,24 +385,34 @@ Deletion keeps its gate: it destroys reasoning that exists nowhere else.
 
 ### 4.1 Automation level
 
-`propose` names *what* needs a human; the automation level names *whether one is there*. It is a
-repo-wide stance, set in the agent rule (§5), with a per-invocation override.
+The gate classes name *what* needs a person; the automation level names **who drives** — whether an
+agent runs the whole loop or a person invokes it a skill at a time. It is a repo-wide stance, set
+in the agent rule (§5), with a per-invocation override. The two are distinct concerns: a `propose`
+gate says a decision is at stake; the level says whether the agent may settle it or must hand it up.
 
-- **`assisted`** (default) — every `propose` gate stops for a person. Conflict resolutions, and any
-  standing decision a landing runs into, come out as reasoning plus exact commands; a person makes
-  the call. This is the loop as a pull request.
-- **`full`** — the agent applies and verifies `propose` outcomes on its own, and stops for a person
-  *only* on three things: the **two sides contradict** (they can't both hold), a **standing
-  decision it can't defend** (a landing runs into one and the agent can't show the property still
-  holds, §3.7a), or **verification fails** (the result doesn't pass both sides' tests). Never
-  quietly past those three.
+- **`assisted`** (default) — the person drives. They invoke the skills by name; the agent does not
+  create worktrees, split work, or merge on its own. Skills report and propose — conflict
+  resolutions, and any standing decision a landing runs into, come out as reasoning plus exact
+  commands — and the person makes every call. Autonomy is bounded to the one skill that was run.
+  This is the loop as a pull request.
+- **`full`** — the agent drives the whole loop: it scopes the request (§3.0), creates the worktrees
+  and branches, splits independent work and dispatches it, runs the pre-land check (§3.7a), and
+  merges into the target. It stops for a person on exactly two occasions:
+  1. **scoping is uncertain** — the request is ambiguous, or a fork's contract can't be written
+     down, so the work can't be split safely (the contract-cut rule, §3.0);
+  2. **integration can't be settled safely** — a real conflict, two intents that contradict, a
+     standing decision it can't defend (§3.7a), or verification it can't get green.
 
-Full automation is safe precisely *because* those three are the backstop — `--auto` is not "trust
-the merge", it is "trust it unless the two sides contradict, a promise it can't defend is at stake,
-or a test goes red". The per-command override is `resolve-conflicts --auto`, which picks `full` for
-that one resolution regardless of the repo default; there is no override the other way, because
-dropping back to a person is always allowed. `auto` and `append` gates are unaffected — nothing
-there is destructive enough to need a person either way.
+  Everything else — worktree lifecycle, branching, `--dispatch`, `--auto` resolution, merges — it
+  does without asking.
+
+Both stops are backstops, not conveniences: `full` is only as safe as the standing decisions and
+tests those two occasions lean on, so a repo with thin notes and few tests should stay `assisted`
+(the trade is unresolved and worth measuring — §9). The per-command override is
+`resolve-conflicts --auto`, which picks `full` for that one resolution regardless of the repo
+default; there is no override the other way, because handing a decision to a person is always
+allowed. `auto` and `append` gates are unaffected by the level — nothing there is destructive
+enough to need a person either way.
 
 ## 5. Transports
 
@@ -642,9 +652,11 @@ Each names a way the layer could rot into something worse than nothing.
 - **I16** An anchor that no longer resolves means "re-point it", never a failure, and never blocks.
   Every real refactor moves anchors, and treating that as a failure gets the whole thing switched
   off.
-- **I17** Full automation stops for a person on exactly three things — the two sides contradict, a
-  standing decision it can't defend, or verification fails — and never quietly past them. Those
-  three are why `--auto` is safe, not a fallback for when it isn't.
+- **I17** Full automation stops for a person on exactly two occasions — scoping it can't settle
+  (ambiguous request, or a fork whose contract can't be stated, §3.0), and integration it can't
+  settle safely (the two sides contradict, a standing decision it can't defend, or verification
+  fails). It never proceeds quietly past either. Those stops are why `full` is safe, not a fallback
+  for when it isn't.
 
 ## 9. Open questions
 

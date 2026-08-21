@@ -1,140 +1,95 @@
-This transport exists for one event the others can't reach. A decision being abandoned leaves
-no git state behind — no commit, no ref, nothing a hook could detect — so the only thing that
-can catch it is something already in the room when it happens. Without this block, capture runs
-only retrospectively, reconstructing reasoning at the moment recall is worst.
+# git-intent — the agent rule to copy
 
-The optional [`hooks/`](hooks/) cover two of the other events. Everything else is a slash command.
+git-intent's skills are slash commands and hooks. One thing, though, no command or hook can reach: a decision being *abandoned* leaves no git state — no commit, no ref — so the only thing that can record it is an instruction already in the room when it happens. That is what this file is for. Without it, capture runs only after the fact, reconstructing reasoning at the moment recall is worst.
 
-## Keep it short
+**Pick one setup below and copy its fenced block** into the repo's `CLAUDE.md`, `AGENTS.md`, or `.cursorrules`:
 
-Whatever you paste is **loaded on every turn in this repo, forever**, competing with the
-project's own instructions for attention. Long rules get skimmed by models the same way long
-onboarding docs get skimmed by people.
+- **A — Assisted** (default, start here): you invoke the skills; the agent captures intent as you work and warns you, but never creates worktrees or merges on its own.
+- **B — Fully automated**: the agent takes a request and runs the whole loop, stopping only to ask about scoping or an integration it can't settle.
 
-So the block names *when to act* and nothing else. How to write the note, what the file looks
-like, what goes in which section — all of that lives in `capture-diff`, which loads when the
-skill fires and costs nothing until then. Resist the urge to inline it.
+Whatever you paste is loaded on every turn, forever, competing with the project's own instructions for attention — so copy **one** block, not both, and don't inline how the skills work. That lives in the skills, which load only when they fire.
 
 ---
 
-## Minimal — recommended
+## A — Assisted (default)
 
-Four lines of trigger, one of hygiene. This is the whole of what the always-on layer needs.
+You drive: you invoke the skills by name, and the agent assists. The one thing it does unprompted is record intent — because an abandoned approach can't be caught any other way. It never creates worktrees, splits work, or merges on its own. This is the floor; start here, and move to B only once your notes and tests are solid.
 
 ```markdown
-## Recording intent
+## git-intent (assisted)
 
-This repo uses git-intent. Use the `capture-diff` skill to append to
-`.branch-notes/<branch>.md` — without being asked — when:
+Recording intent — run capture-diff to append to .branch-notes/<branch>.md,
+without being asked, whenever:
+  - an approach is tried and abandoned (invisible in the final diff — the next
+    person will otherwise try it too)
+  - an external constraint forces a design
+  - a value is chosen that will look arbitrary later (a timeout, a batch size)
+  - something is written that looks wrong and isn't
+Commit at each working state; append to the note at each decision — these
+happen at different rates. Never record what the diff already shows.
 
-- an approach is tried and abandoned (invisible in the final diff, and the
-  next person will otherwise try it too)
-- an external constraint forces a design
-- a value is chosen that will look arbitrary later — a timeout, a batch size
-- something is written that looks wrong and isn't
+Before a PR: capture-diff, then review-diff. If review changed behaviour, run
+capture-diff again — the note is archived as-is when the branch lands, so a
+stale note is the version that survives.
+On conflicts: resolve-conflicts, not by hand.
+After landing, on the integration branch: reconcile-notes.
 
-Commit at each working state; append to the note at each decision. These
-happen at different rates — don't tie them together.
+Automation level: assisted. The human invokes the skills; the agent never
+creates worktrees, splits work, or merges on its own.
+```
 
+---
+
+## B — Fully automated
+
+The agent takes a request and runs the loop end to end: scope, branch, worktree, build, check, merge. It stops for you on exactly two occasions — scoping it can't settle, or an integration it can't settle safely — and does everything else on its own.
+
+Move here only once your "Must survive" lines and your tests are solid. Those two stops are what hold full automation back, and they lean entirely on notes and tests being real; a repo with thin notes and few tests should stay on A. (The trade is [`SPEC.md`](SPEC.md) §4.1.) This block is heavier than A by necessity — it carries the loop.
+
+```markdown
+## git-intent (fully automated)
+
+Recording intent — run capture-diff to append to .branch-notes/<branch>.md,
+without being asked, whenever an approach is abandoned, a constraint forces a
+design, a value is chosen that will look arbitrary later, or something looks
+wrong and isn't. Commit at each working state; append at each decision.
 Never record what the diff already shows.
-```
 
-That last line does more work than its length suggests. Without it, notes drift into prose
-restatements of the changeset, and a note that duplicates the diff is worse than no note: it
-costs review attention and buries the two lines that mattered.
+Working in parallel — operate like a careful integrator, not a single-threaded
+editor:
+  - When a request arrives: scope-work. Fork one branch + worktree per
+    independent unit, but only where the contract between them can be written
+    down first; otherwise sequence them. One intent is one branch — don't fan
+    out the steps of a single change.
+  - One unit = one branch = one worktree, cut from the integration branch:
+        git worktree add ../wt/<slug> -b <type>/<slug>
+    Never edit main / develop / release/* directly.
+  - Before writing code: collision-scan.
+  - While working: capture-diff as you decide; write the "Must survive" line.
+  - Before landing: semantic-scan --pre-land, then merge into the target.
+  - After landing: reconcile-notes.
+
+Automation level: full. Run the whole loop on your own — worktrees, branches,
+splitting, --dispatch, --auto, merges. Stop to ask a person on exactly two
+occasions:
+  1. scoping is uncertain — the request is ambiguous, or a fork's contract
+     can't be written down (so the work can't be split safely);
+  2. integration can't be settled safely — a real conflict, two intents that
+     contradict, a "Must survive" line you can't show still holds, or tests
+     you can't get green.
+Never proceed quietly past either.
+```
 
 ---
 
-## Full loop — optional
+## What does not go in branch notes (either setup)
 
-Add if you want the whole lifecycle prompted rather than invoked. Everything here is also
-reachable as a slash command or a hook, so this block buys convenience, not capability.
-
-```markdown
-### Also
-
-- Before opening a PR: `capture-diff`, then `review-diff`.
-- If review changed behavior: `capture-diff` again. The note is archived as-is
-  when the branch lands, so a stale note is the version that survives.
-- On conflicts: `resolve-conflicts` rather than resolving by hand.
-- After landing, on the integration branch: `reconcile-notes`.
-```
-
-The second line is the one worth keeping even if you drop the rest. Review changes code, nobody
-re-runs capture, and `reconcile-notes` archives whatever is in the tree — so the pre-review note
-becomes the permanent record of a branch that shipped something else. `review-diff` reports the
-gap on every run, but only if someone is running it.
-
----
-
-## Working in parallel — for repos running agents in worktrees
-
-The blocks above make the *skills* fire. This one makes the *agent* operate like a careful human
-integrator instead of a single-threaded editor — it's what you add when more than one agent works
-the repo at once. Heavier than the capture rule, so add it only for that case.
-
-```markdown
-## Working in parallel
-
-Operate like a careful human integrator, not a single-threaded editor.
-
-- **When a request arrives:** scope-work. If it holds more than one
-  independent intent, fork one branch/worktree per intent — but only where the
-  contract between them can be written down first. If it can't, sequence them;
-  never race two agents at a contract that doesn't exist yet. One intent is one
-  branch — don't fan out the steps of a single change.
-- **One unit of work = one branch = one worktree.** Never edit an integration
-  branch (main / develop / release/*) directly. Cut a worktree per task:
-      git worktree add ../wt/<slug> -b <type>/<slug>
-  Work only inside it. The git-intent cache is shared across worktrees
-  automatically, so parallel agents don't clobber each other's baseline.
-- **Before writing code:** collision-scan. If another worktree or live branch
-  is already in these files, settle who owns what now, not at merge.
-- **While working:** capture-diff as you decide — and write the "Must survive"
-  line, the one thing about this work that later changes must not quietly undo.
-- **Before landing:** semantic-scan --pre-land. It brings up every "Must survive"
-  line your change runs into — your own, a live peer's in another worktree, or
-  one from work that already landed. For each, decide: does it still hold, does
-  your change replace it, or does it no longer apply. How that decision gets
-  made is the automation level below.
-- **After landing:** reconcile-notes on the integration branch.
-
-Don't wait to be asked for any of these.
-```
-
-## Automation level
-
-This one line decides who makes the call when your change runs into a "Must survive" line someone
-wrote, or when a merge conflicts.
-
-```markdown
-## Automation level
-
-assisted (default) — ask a person. When a change runs into a "Must survive"
-                     line, or a merge conflicts, stop and lay out the options;
-                     a person decides.
-full               — decide it yourself where you can, and only stop for a
-                     person on three things: the two sides contradict, a "Must
-                     survive" line you can't show still holds, or the tests go
-                     red. Never quietly past those three.
-```
-
-Start at `assisted`. Move to `full` once the "Must survive" lines and the tests are solid enough to
-lean on — they are what make full safe, so a repo with thin notes and few tests should stay at
-`assisted`. A single command can still opt in with `resolve-conflicts --auto`.
-
----
-
-## What does not go in branch notes
-
-Say this in the repo's own instructions if it isn't already obvious there:
+Keep durable reasoning out of the notes. Say this in the repo's own instructions if it isn't already clear:
 
 ```markdown
 Constraints, architectural decisions, and conventions belong in ARCHITECTURE.md
-or docs/adr/ — reviewed, owned, and durable. Branch notes are per-branch and
-get archived. Don't put standing decisions in them.
+or docs/adr/ — reviewed, owned, durable. Branch notes are per-branch and get
+archived; don't put standing decisions in them.
 ```
 
-The test for any candidate line: **could this be recovered from the repository tomorrow?**
-If yes, it belongs in a commit message, in the architecture docs, or nowhere. Branch notes are
-for the remainder — the part that exists only in someone's head, and only for about an hour.
+The test for any candidate line: could it be recovered from the repo tomorrow? If yes, it belongs in a commit message, the architecture docs, or nowhere. Branch notes hold the remainder — the part that exists only in someone's head, and only for about an hour.

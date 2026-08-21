@@ -76,7 +76,7 @@ Nothing else is required. Every skill works on a repo that has never heard of th
 
 Optional, for a repo where several agents work; none is needed for any skill to run. Why each matters is in [`SPEC.md`](SPEC.md) §5.
 
-- **Live capture + the parallel operating block** — copy the blocks from [`AGENTS.example.md`](AGENTS.example.md) into the repo's `CLAUDE.md` / `AGENTS.md` / `.cursorrules`. The first makes `capture-diff` record decisions as they happen; the second sets one-branch-one-worktree, the pre-land check, and the automation level (`assisted` by default, `full` when you're ready).
+- **The git-intent agent rule** — [`AGENTS.example.md`](AGENTS.example.md) offers two setups; copy the one you want into the repo's `CLAUDE.md` / `AGENTS.md` / `.cursorrules`. **Assisted** (default) has `capture-diff` record decisions as they happen while you drive the skills; **fully automated** adds the operating loop (one-branch-one-worktree, the pre-land check) and lets the agent run it end to end.
 - **Event nudges** — `git config core.hooksPath hooks` prints a one-line suggestion on checkout and merge. Read [`hooks/README.md`](hooks/README.md) first — `core.hooksPath` replaces your existing hooks.
 - **PR checks** — [`ci/`](ci/) ships a POSIX script and a workflow example; it comments on the pull request, where review and merge actually happen.
 
@@ -144,7 +144,7 @@ The reasoning behind all of it — the state model, when each skill runs, the ga
 ```
 git-intent/
 ├── SPEC.md                the state model, when skills run, gates, transports, invariants
-├── AGENTS.example.md      copy into your repo: live capture, the parallel loop, automation level
+├── AGENTS.example.md      the agent rule — copy the assisted or the automated setup
 ├── hooks/                 optional git hooks for two of the moments
 ├── ci/                    optional pull-request checks — script + workflow example
 ├── CLAUDE.md              for working on git-intent itself

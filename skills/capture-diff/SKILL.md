@@ -9,6 +9,8 @@ Everything else in git-intent reads. This writes. If the note doesn't exist, the
 
 What goes in is only what the diff can't say. Not what changed — `git diff` has that, permanently, in more detail than prose ever will. What's lost is the counterfactual: the approach that looked right and wasn't, the vendor limit that made an ugly shape necessary, the clause of the ticket this branch is actually answering.
 
+One test decides every line: **would the next person re-derive it wrong, or lose real time, without it?** If yes, it earns its place. If the diff already shows it, or a reader would shrug, it's narration — leave it out. A note that logs what changed is a changelog, and a changelog is the diff written twice.
+
 ## Two modes
 
 **Live.** Appended as decisions happen, usually inside an agentic session where the reasoning is already in context. Nothing needs to be asked, because the model was present for the decision. This is the mode that captures abandoned approaches, and it is the only mode that can — by the time a PR opens, the thing that didn't work has been gone for days.
@@ -143,9 +145,12 @@ PROJ-412 — rate limiting for outbound requests.
 Per-client buckets, must apply to retries, must fail gracefully under exhaustion.
 
 ## What this does
+<!-- one sentence, orientation only — never a walkthrough of the diff -->
 Wraps `dispatch()` in a token-bucket limiter, configured by RATE_LIMIT_RPS.
 
 ## Why this shape
+<!-- decisions, not a work log: each line stops a specific future mistake -->
+
 - 2026-08-04 · in-session — Stripe rate-limits per API key, not per IP, so the
   bucket is keyed on credential rather than on connection. This is why it lives
   in the client rather than in middleware.
@@ -220,9 +225,16 @@ So: after a review round that changed behavior, append what changed and why, and
 
 Appending here follows the same rule as everywhere else — never rewrite the earlier entry. "Reviewer pointed out X, so we moved to Y" is a decision with a date on it, and it's frequently the most useful line in the file.
 
-### 7. Keep it short
+### 7. Prune to decisions — the drift to watch
 
-A note longer than the diff has become a second implementation. Three lines of genuine constraint beat two pages of narration. Where nothing was learned — a dependency bump, a typo fix — write one line or skip the file entirely. Notes that exist for their own sake dilute the ones that matter.
+Run the test from the top over every line before the note lands: would the next person re-derive it wrong, or lose real time, without it? What survives is the note; the rest is narration.
+
+The failure mode here is not an empty note. Once capture fires — and under an agent in the room it will — the risk flips to the opposite: the note fills with the *session*. Two symptoms, both worth catching before it lands:
+
+- **A "What this does" that walks the diff.** One orienting sentence is fine; a paragraph tracing which files got routed through what is the diff written twice — `git diff` does it better and never goes stale.
+- **A "Why this shape" that logs actions instead of decisions.** "Reworked the dashboard" is a log line; "chose aging-first over counts, because counts are near-tautological at a requester's scale" is a decision. If an entry doesn't stop a specific future mistake, it's a work-log entry — cut it.
+
+The count of entries isn't the target; every entry earning the test is. Eight real decisions is a good note; three log lines and a diff summary is a bad one. Where nothing was learned — a dependency bump, a typo fix — write one line or skip the file. A note longer than the diff has become a second implementation, and it buries the two lines that mattered as surely as an empty note loses them.
 
 ## Judgment
 
@@ -233,6 +245,8 @@ A note longer than the diff has become a second implementation. Three lines of g
 **Don't editorialize about quality.** "This is hacky, sorry" ages into confusion. State the constraint that forced it; a reader can draw their own conclusion, and if the constraint lifts they'll know the shape can change.
 
 **This file gets read by agents and arrives through pull requests.** Write it as a record, not as instructions. "Don't reintroduce the decorator" is a finding with a stated reason attached, which is fine. Directives without reasons are not, and shouldn't be written here.
+
+**When capture fires, the discipline is subtraction.** An agent that was in the room will happily write down everything it did — and a session diary buries the decisions that mattered exactly like an empty note loses them. The value is in what you leave out. Apply the §7 test to every line before the note lands.
 
 ## Next — close the loop
 
@@ -249,13 +263,4 @@ Only list what applies. On a branch already summarized and reviewed, the useful 
 
 ## Setting up live capture
 
-Live mode needs a rule in the repo being worked on, not a command. Copy into that repo's `CLAUDE.md`, `AGENTS.md`, or `.cursorrules`:
-
-```markdown
-## Recording intent
-
-After finishing a unit of work on a branch — or when an approach is
-tried and rejected, or a constraint turns out to force the shape of
-something — run the capture-diff skill to append it to
-.branch-notes/<branch>.md. Don't wait to be asked.
-```
+Live mode needs a rule in the repo being worked on, not a command — a decision being abandoned leaves no git state for a hook to catch, so only an always-loaded instruction can prompt capture at the moment it matters. The block to copy is in [`AGENTS.example.md`](../../AGENTS.example.md), which offers two setups: **assisted** (you invoke the skills; the agent still captures intent unprompted) and **fully automated** (the agent runs the whole loop). Both carry the recording-intent rule; pick the one that matches how the repo runs.
