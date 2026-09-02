@@ -1,35 +1,13 @@
-# git-intent: semantic governance with safe Git convergence
+# git-intent: Intent layer for Agentic Work
 
-git-intent keeps accepted architectural meaning sparse while making concurrent agent work and
-local landing mechanically safe.
+git-intent gives coding agents a persistent, reviewable understanding of architectural intent,
+along with local coordination and safe Git convergence. It can be adopted incrementally; a
+repository does not need an upfront inventory or complete architecture model.
 
-- **Domains** name coherent semantic responsibilities. They are inferred from behavior and
-  architecture, not equated with directories.
-- **Contracts** preserve executable promises relied on between domains.
-- **Constraints** preserve accepted architectural shape and may be enforced semantically.
-- **Audits and observations** retain non-authoritative evidence with Git-causal provenance.
-- **Plans and leases** coordinate only the current execution context in ignored local runtime.
-- **Landing** verifies the exact prospective tree before atomically moving the integration ref.
+![Domains hold responsibility, contracts bind their relied-on seams, and constraints preserve architectural shape.](.github/assets/domains-and-contracts.svg)
 
-Missing governance is an observed posture, never a blocker. A simple change remains:
-
-```text
-brief → implement → land
-```
-
-Parallel work adds temporary planning:
-
-```text
-brief → plan → lease → workers → land
-```
-
-Adoption occurs only when accepted meaning must persist:
-
-```text
-brief → audit → resolve → record → re-brief → implement → land
-```
-
-[SPEC.md](SPEC.md) is the design of record.
+Domains, contracts, and constraints retain the small amount of architectural meaning agents must
+not lose. The complete model is documented in [SPEC.md](SPEC.md).
 
 ## Install
 
@@ -52,7 +30,7 @@ always-loaded agent instructions.
 
 ## Configuration
 
-Configuration is optional and remains version 1:
+Configuration is optional:
 
 ```yaml
 version: 1
@@ -60,13 +38,21 @@ resolution: assisted
 integration_branch: main
 ```
 
-- `resolution: assisted | auto` chooses who resolves consequential architectural ambiguity.
-- `integration_branch` overrides the branch captured at goal intake.
+`resolution` controls who resolves consequential architectural ambiguity:
 
-Planning choices, worker availability, documentation folders, and external-effect authority are
-not repository configuration.
+| Mode | Behavior |
+|---|---|
+| `assisted` | The agent handles routine work within recorded intent, but asks the user before resolving an ambiguous architectural change, compatibility promise, or consequential side effect. |
+| `auto` | The agent may resolve those questions itself when the current request and recorded authority provide enough evidence. It still reports the resolution and records durable consequences when needed. |
 
-## State
+Both modes enforce recorded contracts and constraints. Neither mode grants permission to contradict
+explicit requirements or perform external actions such as pushing, deploying, publishing, or
+destructive cleanup.
+
+`integration_branch` optionally fixes the local convergence target. Without it, git-intent captures
+the current branch when work begins.
+
+## Repository state
 
 ```text
 .intent/config.yml             optional resolution and integration target
@@ -79,14 +65,5 @@ not repository configuration.
 .intent/runtime/leases/        ignored live ownership claims
 ```
 
-The runtime path is resolved in the primary worktree so linked worktrees share it. Runtime creates
-its own ignore marker and may be deleted without changing repository meaning, though doing so can
-discard active coordination.
-
-Architecture material stays where the repository naturally keeps it. Domains, contracts, and
-constraints reference exact ADRs, diagrams, schemas, or architecture sections; no global docs
-folder is configured.
-
-There is no tracked route object. Briefing is the routing operation: the model selects semantic
-domains, while declared repository and interface surfaces mechanically discover additional
-contracts and constraints. This avoids duplicating the governing records merely to help retrieval.
+Runtime is shared by linked worktrees through the primary worktree. It may be removed without
+changing repository meaning, although doing so discards active coordination state.
