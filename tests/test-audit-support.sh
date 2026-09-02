@@ -1,9 +1,10 @@
 #!/bin/sh
-# Verify audit discovery is deterministic, scoped, and write-free.
+# Verify audit evidence framing and Git-causal freshness.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 audit="$root/skills/intent-audit/scripts/audit-support.sh"
+validator="$root/skills/intent-brief/scripts/validate-state.sh"
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/git-intent-audit-test.XXXXXX")
 cleanup() { rm -rf "$fixture"; }
 trap cleanup EXIT HUP INT TERM
@@ -11,113 +12,95 @@ trap cleanup EXIT HUP INT TERM
 git -C "$fixture" init -qb main
 git -C "$fixture" config user.name test
 git -C "$fixture" config user.email test@example.com
-mkdir -p "$fixture/backend" "$fixture/.intent"
-echo b >"$fixture/backend/app.py"
-cat >"$fixture/.intent/ROUTES.yml" <<'EOF'
+git -C "$fixture" config commit.gpgsign false
+mkdir -p "$fixture/docs/adr" "$fixture/src/ocr" "$fixture/ui" "$fixture/.intent/audits"
+printf '# Architecture\n' >"$fixture/docs/architecture.md"
+printf '# ADR\n' >"$fixture/docs/adr/0001.md"
+printf 'ocr\n' >"$fixture/src/ocr/engine.txt"
+printf 'ui\n' >"$fixture/ui/view.txt"
+cat >"$fixture/.intent/DOMAINS.yml" <<'EOF'
 version: 1
-routes:
-  - scope: area.backend
-    paths: [backend]
-    domain: [user:task:seeded#turn-1]
+domains:
+  - id: ocr.engine
+    description: Executes OCR.
+    authority: user:task:test#turn-1
+    material: [architecture:docs/architecture.md]
 EOF
 git -C "$fixture" add -A
 git -C "$fixture" commit -qm seed
+ground=$(git -C "$fixture" rev-parse HEAD)
+tree=$(git -C "$fixture" rev-parse 'HEAD^{tree}')
 
 ok() { echo "ok - $1"; }
 die() { echo "not ok - $1"; exit 1; }
 
-out=$(cd "$fixture" && sh "$audit" scope --paths backend/app.py frontend/a.ts frontend/b.ts scripts/run.sh Makefile)
-printf '%s\n' "$out" | grep -q '^  - scope: area.frontend$' || die "unrouted directory becomes an area route"
-printf '%s\n' "$out" | grep -q '^    paths: \[frontend\]$' || die "area route matches the directory, not files"
-printf '%s\n' "$out" | grep -q '^  - scope: area.scripts$' || die "every unrouted top-level directory is proposed"
-printf '%s\n' "$out" | grep -q '^  - scope: area.root$' || die "root-level files group under area.root"
-printf '%s\n' "$out" | grep -q '^    paths: \[Makefile\]$' || die "root files are listed explicitly"
-printf '%s\n' "$out" | grep -q 'area.backend' && die "routed paths are never re-proposed"
-printf '%s\n' "$out" | grep -q '^# discovered candidate rows' || die "existing ROUTES.yml gets candidate rows, not a new file"
-printf '%s\n' "$out" | grep -q 'REPLACE-with-current-request-locator' || die "authority placeholder demands the current request"
-ok "scoped audit emits area rows for exactly the unrouted spread"
+out=$(cd "$fixture" && sh "$audit" scope --paths src/ocr/engine.txt)
+printf '%s\n' "$out" | grep -q '^AUDIT: scope$' || die "scope frame missing"
+printf '%s\n' "$out" | grep -q "^GROUND: $ground$" || die "ground missing"
+printf '%s\n' "$out" | grep -q '^TREE: ' || die "tree missing"
+printf '%s\n' "$out" | grep -q '^DERIVED: area.src$' || die "derived mechanical scope missing"
+printf '%s\n' "$out" | grep -q '^DOMAIN: ocr.engine$' || die "existing semantic domain missing"
+printf '%s\n' "$out" | grep -q '^SOURCE: docs/architecture.md$' || die "architecture source missing"
+printf '%s\n' "$out" | grep -q '^NEXT: write semantic findings to .intent/audits/' || die "record transition missing"
+printf '%s\n' "$out" | grep -q '^routes:' && die "audit still proposes routes"
+ok "scoped audit emits causal evidence without inventing semantic records"
 
-out=$(cd "$fixture" && sh "$audit" scope --paths backend/app.py)
-printf '%s\n' "$out" | grep -q '^DISCOVER: 0' || die "fully routed touch set proposes nothing"
-ok "fully routed touch set proposes nothing"
+out=$(cd "$fixture" && sh "$audit" full --auto)
+printf '%s\n' "$out" | grep -q '^RESOLUTION: auto$' || die "full audit resolution missing"
+printf '%s\n' "$out" | grep -q '^BOUNDARY: area.src src$' || die "full audit map missing"
+ok "explicit full mode uses assisted or auto resolution vocabulary"
 
-if (cd "$fixture" && sh "$audit" full >/dev/null 2>&1); then
-  die "full audit accepts no implicit mode"
-fi
-ok "full audit requires an explicit execution mode"
-
-out=$(cd "$fixture" && sh "$audit" full --autonomous)
-printf '%s\n' "$out" | grep -q '^AUDIT: full$' || die "full audit does not identify itself"
-printf '%s\n' "$out" | grep -q '^MODE: autonomous$' || die "autonomous mode is not carried"
-printf '%s\n' "$out" | grep -q '^SNAPSHOT: ' || die "full audit lacks a snapshot"
-printf '%s\n' "$out" | grep -q '^BOUNDARY: area.backend backend$' || die "full audit lacks the derived map"
-printf '%s\n' "$out" | grep -q '^ROUTE: area.backend$' || die "full audit lacks existing route evidence"
-printf '%s\n' "$out" | grep -q 'REPLACE-with-current-request-locator' && die "full audit must not propose universal route coverage"
-ok "autonomous full audit emits evidence without blanket candidates"
-
-out=$(cd "$fixture" && sh "$audit" full --assisted)
-printf '%s\n' "$out" | grep -q '^MODE: assisted$' || die "assisted mode is not carried"
-ok "assisted full audit uses the same read-only evidence boundary"
-
-rm -f "$fixture/.intent/ROUTES.yml"
-out=$(cd "$fixture" && sh "$audit" scope --paths frontend/a.ts)
-printf '%s\n' "$out" | grep -q '^version: 1$' || die "absent ROUTES.yml gets a full-file skeleton"
-printf '%s\n' "$out" | grep -q '^routes:$' || die "skeleton declares the routes list"
-ok "absent ROUTES.yml yields a complete file skeleton"
-
-out=$(cd "$fixture" && sh "$audit" scope --paths .intent/CONTRACTS.yml .github/workflows/ci.yml .env frontend/a.ts)
-printf '%s\n' "$out" | grep -q 'area.frontend' || die "ordinary paths still propose"
-printf '%s\n' "$out" | grep -q 'scope: area.root' || die "root dotfiles and hidden directories belong to area.root"
-printf '%s\n' "$out" | grep -q '\.intent' && die "intent state is never proposed"
-ok "dotfiles are addressable while intent state remains excluded"
-
-[ ! -e "$fixture/.intent/ROUTES.yml" ] || die "audit must not write"
-ok "audit writes nothing"
-
-# Recurrence: the audit-offer trigger, derived from the first-parent stream.
-git -C "$fixture" config commit.gpgsign false
-cat >"$fixture/.intent/ROUTES.yml" <<'EOF'
+cat >"$fixture/.intent/audits/ocr.yml" <<EOF
 version: 1
-routes:
-  - scope: area.backend
-    paths: [backend]
-    domain: [user:task:seeded#turn-1]
+id: ocr
+ground: $ground
+tree: $tree
+mode: scope
+paths: [src/ocr]
+findings:
+  - id: architecture-source
+    summary: OCR behavior is described by the architecture document.
+    evidence: [repo:docs/architecture.md, repo:src/ocr]
+    proposed: observation
+    disposition: observation-only
 EOF
-git -C "$fixture" add .intent
-git -C "$fixture" commit -qm routes >/dev/null 2>&1 || true
-i=1
-while [ "$i" -le 3 ]; do
-  echo "$i" >>"$fixture/backend/app.py"
-  git -C "$fixture" commit -qam "u$i
+(cd "$fixture" && sh "$validator" >/dev/null) || die "tracked audit schema is invalid"
+git -C "$fixture" add .intent/audits/ocr.yml
+git -C "$fixture" commit -qm "record audit"
+out=$(cd "$fixture" && sh "$audit" fresh ocr)
+printf '%s\n' "$out" | grep -q '^FRESH:' || die "audit commit made its own evidence stale"
+ok "tracked audits remain non-authoritative causal evidence"
 
-Intent-Unit: u$i
-Intent-Scope: area.frontend
-Intent-Scope: area.backend"
-  i=$((i + 1))
-done
-echo once >"$fixture/once.txt"
-git -C "$fixture" add once.txt
-git -C "$fixture" commit -qm "single
+mkdir -p "$fixture/captured"
+printf 'captured\n' >"$fixture/captured/fact.txt"
+frame=$(cd "$fixture" && sh "$audit" scope --paths captured)
+captured_ground=$(printf '%s\n' "$frame" | sed -n 's/^GROUND: //p')
+captured_tree=$(printf '%s\n' "$frame" | sed -n 's/^TREE: //p')
+cat >"$fixture/.intent/audits/captured.yml" <<EOF
+version: 1
+id: captured
+ground: $captured_ground
+tree: $captured_tree
+mode: scope
+paths: [captured]
+findings: []
+EOF
+git -C "$fixture" add captured .intent/audits/captured.yml
+git -C "$fixture" commit -qm "record exact audited snapshot"
+out=$(cd "$fixture" && sh "$audit" fresh captured)
+printf '%s\n' "$out" | grep -q '^FRESH: head matches the audited tree$' || die "captured work became stale when recorded"
+ok "freshness compares the exact audited tree, not a wall clock or only its ground"
 
-Intent-Unit: u9
-Intent-Scope: area.scripts"
-echo board1 >>"$fixture/backend/app.py"
-git -C "$fixture" commit -qam "board unit 1
+printf 'changed\n' >>"$fixture/ui/view.txt"
+git -C "$fixture" commit -qam "unrelated UI change"
+out=$(cd "$fixture" && sh "$audit" fresh ocr)
+printf '%s\n' "$out" | grep -q '^FRESH:' || die "unrelated change made audit stale"
+ok "unrelated descendants preserve audit freshness"
 
-Intent-Unit: b1
-Intent-Scope: area.board
-Intent-Board: one-goal"
-echo board2 >>"$fixture/backend/app.py"
-git -C "$fixture" commit -qam "board unit 2
+printf 'changed\n' >>"$fixture/docs/architecture.md"
+git -C "$fixture" commit -qam "change audited evidence"
+if out=$(cd "$fixture" && sh "$audit" fresh ocr); then die "intersecting evidence change stayed fresh"; fi
+printf '%s\n' "$out" | grep -q '^STALE: changed evidence docs/architecture.md$' || die "stale evidence is not identified"
+ok "intersecting descendant change makes audit stale"
 
-Intent-Unit: b2
-Intent-Scope: area.board
-Intent-Board: one-goal"
-out=$(cd "$fixture" && sh "$audit" recurrence)
-printf '%s\n' "$out" | grep -q '^RECURRENT: area.frontend 3$' || die "an ungoverned identifier recurring across landings is reported"
-printf '%s\n' "$out" | grep -q 'area.backend' && die "a governed identifier never triggers the offer"
-printf '%s\n' "$out" | grep -q 'area.scripts' && die "first contact never triggers the offer"
-printf '%s\n' "$out" | grep -q 'area.board' && die "several commits from one coordinated goal count once"
-ok "recurrence counts completed goals rather than workflow commits"
-
-echo "9 audit-support checks passed"
+echo "6 audit checks passed"

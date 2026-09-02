@@ -1,13 +1,15 @@
-# Concurrent intent reconciliation
+# Concurrent governance reconciliation
 
-Use proposals only when independent live workers produced incompatible candidates for the same durable property. Ordinary serial governance writes directly after authority resolution.
+Use this only when independent workers produced incompatible edits to the same domain, contract,
+constraint, or defining material.
 
-1. Validate every candidate and its provenance.
-2. Order explicit supersessions by Git ancestry.
-3. Compose compatible properties across authority domains.
-4. Prefer no branch merely because it is `ours` or `theirs`.
-5. If accepted directions cannot coexist, resolve one consequential question according to `escalation: human | agent`, subject to the hard gates.
-6. Move superseded or obsolete records to history and activate exactly the accepted result.
-7. Run state validation and every affected verifier.
+1. Validate each edit and its authority.
+2. Order landed facts by Git ancestry, never timestamps.
+3. Compose compatible assertions and material.
+4. Treat removal, weakening, or changed domain relationships as gated.
+5. Resolve one consequential question according to `resolution: assisted | auto`.
+6. Write exactly the accepted active result; Git already retains superseded content.
+7. Validate state, run affected contract checks, review constraints, and land prospectively.
 
-Reconciliation records semantic outcome, not execution history. Delete rejected ephemeral candidates; never preserve them as task logs.
+Runtime plans and leases coordinate the competing work. Do not create durable proposal or history
+files merely to preserve execution history.

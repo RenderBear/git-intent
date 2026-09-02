@@ -1,19 +1,33 @@
-# git-intent: an intent layer for agentic work
+# git-intent: semantic governance with safe Git convergence
 
-git-intent adds an intent layer to agentic work over Git. It separates durable semantic
-governance from temporary execution coordination.
+git-intent keeps accepted architectural meaning sparse while making concurrent agent work and
+local landing mechanically safe.
 
-- **Governed intent** records a sparse set of accepted macro directions, critical contracts,
-  architecture pointers, decisions, and exceptions.
-- **Routes** connect a semantic scope to those authorities. Routes carry no authority of their
-  own.
-- **Workboards and leases** coordinate live parallel work. They may be redrawn, become stale,
-  and disappear without changing repository meaning.
-- **Atomic landing** verifies the exact prospective tree before advancing the integration ref.
+- **Domains** name coherent semantic responsibilities. They are inferred from behavior and
+  architecture, not equated with directories.
+- **Contracts** preserve executable promises relied on between domains.
+- **Constraints** preserve accepted architectural shape and may be enforced semantically.
+- **Audits and observations** retain non-authoritative evidence with Git-causal provenance.
+- **Plans and leases** coordinate only the current execution context in ignored local runtime.
+- **Landing** verifies the exact prospective tree before atomically moving the integration ref.
 
-Missing governance is an operating posture, not an error. Unrouted work proceeds under the
-current request, repository checks, live claims, and the consequence gate unless it creates a
-critical durable boundary that must be established first.
+Missing governance is an observed posture, never a blocker. A simple change remains:
+
+```text
+brief → implement → land
+```
+
+Parallel work adds temporary planning:
+
+```text
+brief → plan → lease → workers → land
+```
+
+Adoption occurs only when accepted meaning must persist:
+
+```text
+brief → audit → resolve → record → re-brief → implement → land
+```
 
 [SPEC.md](SPEC.md) is the design of record.
 
@@ -28,93 +42,51 @@ always-loaded agent instructions.
 
 ## Skills
 
-| Skill | Role |
+| Skill | Responsibility |
 |---|---|
-| `intent-brief` | Read-only routing and posture compilation. |
-| `intent-audit` | Read-only scoped discovery and explicitly human-requested full repository audits. |
-| `intent-coordinate` | Ephemeral workboards, claims, dispatch, and leases when useful concurrency exists. |
-| `intent-land` | Prospective-tree verification and atomic local landing. |
-| `intent-record` | The sole writer of accepted routes, contracts, decisions, and exceptions. |
-
-The routine lifecycle is:
-
-```text
-intent-brief → implement → intent-land
-```
-
-Coordination activates only for genuinely concurrent, independently owned, or handoff-sensitive
-work:
-
-```text
-intent-brief → intent-coordinate → workers → intent-land
-```
-
-Intent is established only when the current work introduces or changes a critical durable
-boundary:
-
-```text
-intent-audit scope → resolve authority → intent-record adopt → re-brief
-```
-
-A whole-repository audit starts only from an explicit human request. It may run autonomously or
-pause for assistance, but remains read-only; accepted candidate batches flow to `intent-record`.
+| `intent-brief` | Select semantic domains and compile applicable governance and live claims. |
+| `intent-coordinate` | Validate parallel plans and manage causal leases. |
+| `intent-audit` | Discover and persist non-authoritative findings. |
+| `intent-record` | Adopt accepted domains, contracts, constraints, and defining material. |
+| `intent-land` | Review and verify a prospective tree, then atomically converge it. |
 
 ## Configuration
 
-Configuration remains version 1 and is optional:
+Configuration is optional and remains version 1:
 
 ```yaml
 version: 1
-escalation: human
+resolution: assisted
 integration_branch: main
 ```
 
-Both fields are optional.
+- `resolution: assisted | auto` chooses who resolves consequential architectural ambiguity.
+- `integration_branch` overrides the branch captured at goal intake.
 
-- `escalation: human | agent` decides who resolves consequential semantic ambiguity.
-  `agent` delegates judgment within already accepted intent; it does not authorize
-  weakening user-defined contracts, incompatible authoritative goals, high-consequence effects,
-  or external mutations.
-- `integration_branch` is an optional local target override. Without it, the branch current at
-  goal intake becomes the integration target and is carried through workboards and leases. A
-  configured branch must exist, except for the current unborn branch before the first commit;
-  detached HEAD without an explicit target is an error.
+Planning choices, worker availability, documentation folders, and external-effect authority are
+not repository configuration.
 
-Worker availability, question timing, adoption preference, push permission, and mechanical
-latitude are not tracked configuration.
-
-## Intent state
-
-The durable surface is deliberately small:
+## State
 
 ```text
-.intent/config.yml                       optional resolver authority and target
-.intent/ROUTES.yml                       sparse scope-to-authority pointers
-.intent/CONTRACTS.yml                    accepted critical assertions and verifiers
-.intent/decisions/<scope-root>/<id>.yml  rare active non-testable choices
-.intent/exceptions/<unit>.yml            accepted temporary underdelivery
+.intent/config.yml             optional resolution and integration target
+.intent/DOMAINS.yml            accepted semantic responsibilities
+.intent/CONTRACTS.yml          accepted cross-domain promises
+.intent/CONSTRAINTS.yml        accepted architectural constraints
+.intent/audits/<id>.yml        tracked non-authoritative audit evidence
+.intent/observations/<id>.yml  tracked non-authoritative facts
+.intent/runtime/plans/         ignored active coordination graphs
+.intent/runtime/leases/        ignored live ownership claims
 ```
 
-Runtime state lives in one visible, ignored workspace in the primary worktree. Every linked
-worktree resolves the same location:
+The runtime path is resolved in the primary worktree so linked worktrees share it. Runtime creates
+its own ignore marker and may be deleted without changing repository meaning, though doing so can
+discard active coordination.
 
-```text
-intent-work/boards/         ephemeral coordination graphs
-intent-work/leases/         live path/interface reservations
-intent-work/observations/   disposable governing digest snapshots
-intent-work/receipts/       disposable verification receipts
-```
+Architecture material stays where the repository naturally keeps it. Domains, contracts, and
+constraints reference exact ADRs, diagrams, schemas, or architecture sections; no global docs
+folder is configured.
 
-`intent-coordinate status` makes the contents and derived fresh/stale lifecycle visible. Cleanup
-is dry-run by default; `clean --apply` removes completed boards, dead or quiescent leases, and
-disposable caches while retaining live leases and incomplete boards. Atomic landing already
-releases landed leases and removes completed boards.
-
-## Establishing intent
-
-A repository needs no bootstrap or inventory pass. Intent is discovered progressively as ordinary
-work reaches critical durable boundaries: scoped audit, authority resolution, record, then
-re-brief. A human may instead request a full autonomous or assisted audit; it remains read-only
-and produces bounded candidates for `intent-record`.
-
-
+There is no tracked route object. Briefing is the routing operation: the model selects semantic
+domains, while declared repository and interface surfaces mechanically discover additional
+contracts and constraints. This avoids duplicating the governing records merely to help retrieval.

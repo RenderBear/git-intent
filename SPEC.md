@@ -1,484 +1,278 @@
-# git-intent — an intent layer for agentic work
+# git-intent — design of record
 
-git-intent adds an intent layer to agentic work over Git. It maintains a sparse governed layer
-over a repository and a separate ephemeral coordination layer for live work. The system routes a
-goal to accepted authority, lets agents work freely inside that envelope, prevents concurrent
-writers from colliding, and verifies the exact prospective tree before advancing an integration
-ref.
+git-intent maintains sparse accepted architecture over a Git repository, a separate short-lived
+planning plane for live work, and an atomic local convergence boundary. Git remains the causal
+clock and source of implementation truth.
 
-Git remains the source of truth for implementation, causal order, and landed state.
+## 1. Operating boundary
 
-## 1. Design boundary
+The system answers:
 
-The system answers five questions:
+1. Which semantic domains matter to this request?
+2. Which accepted cross-domain promises and architectural constraints apply?
+3. Is adoption required before dependent work diverges?
+4. Can useful independent units run concurrently without claim collision?
+5. Does the exact prospective tree preserve accepted meaning and pass verification?
 
-1. What accepted direction or architecture applies to this goal?
-2. Which critical semantic promises must survive?
-3. Is this goal governed, merely observed, or contract-first?
-4. Does live execution need coordination between independent owners?
-5. Can the prospective tree land without violating governance, claims, or verification?
+It does not inventory a repository, persist ordinary reasoning, equate paths with domains, or add
+ceremony merely because governance is absent.
 
-It does not store task memory, progress, command logs, test output, generic reasoning, or a
-repository inventory.
+## 2. Planes and standing
 
-The core rule is:
-
-> Governance is sparse and authoritative. Coordination is temporary and opportunistic. Missing
-> governance reduces guarantees; it never increases ceremony.
-
-## 2. Layers and authority
-
-| Layer | Artifacts | Lifetime | Standing |
+| Plane | Objects | Lifetime | Standing |
 |---|---|---|---|
-| Governed intent | routes, contracts, decisions, exceptions | durable | accepted authority |
-| Routing | stable scope and matcher pointers | durable | no authority of its own |
-| Coordination | workboards, claims, leases | one execution window | scheduling only |
-| Implementation | Git trees and commits | repository history | observed fact |
-| Verification | commands and content-hash receipts | one prospective tree | measured evidence |
+| Governance | domains, contracts, constraints, defining material | durable | accepted authority |
+| Evidence | audits, observations | durable | observed, non-authoritative |
+| Planning | plans, claims, leases | one active context | coordination only |
+| Implementation | Git trees and commits | repository history | causal fact |
+| Verification | commands and prospective review | one candidate tree | measured evidence |
 
-Routes and coordination share semantic identifiers, but durable route rows never point at
-ephemeral files. A resolver joins a scope to any currently live claims at runtime.
+Governance and planning may reference the same semantic identifiers but never grant each other
+authority. Audits and observations can motivate adoption but cannot bind work.
 
 ## 3. State
 
-Tracked intent state:
-
 ```text
-.intent/config.yml                       optional authority and target resolution
-.intent/ROUTES.yml                       sparse governed routing overlay
-.intent/CONTRACTS.yml                    accepted critical contracts
-.intent/decisions/<scope-root>/<id>.yml  rare active durable choices
-.intent/exceptions/<unit>.yml            accepted temporary underdelivery
-.intent/proposals/<unit>/<id>.yml        genuinely concurrent unresolved candidates
-.intent/history/<scope-root>.yml         cold superseded records
+.intent/config.yml
+.intent/DOMAINS.yml
+.intent/CONTRACTS.yml
+.intent/CONSTRAINTS.yml
+.intent/audits/<id>.yml
+.intent/observations/<id>.yml
+.intent/runtime/plans/<id>.yml
+.intent/runtime/leases/<unit>.yml
 ```
 
-Ephemeral state in the primary worktree's visible, ignored `intent-work/` directory:
-
-```text
-intent-work/boards/<id>.yml       temporary objectives, dependencies, and claims
-intent-work/leases/<unit>.yml     live ownership reservations
-intent-work/observations/<digest> governing-content snapshots
-intent-work/receipts/<tree>/<id>  successful verification receipts
-```
-
-The primary worktree is derived from `git worktree list`; every linked worktree therefore shares
-one visible runtime location. The directory self-ignores and is never committed. Deleting it
-cannot change repository meaning, though deleting live leases or incomplete boards discards
-active coordination.
+Runtime is ignored and anchored in the primary worktree so all linked worktrees see the same live
+claims. Deleting it cannot change repository meaning, though it can discard active coordination.
 
 ## 4. Configuration
 
-Configuration remains schema version 1:
-
 ```yaml
 version: 1
-escalation: human
+resolution: assisted
 integration_branch: main
 ```
 
-Both fields after `version` are optional.
+Both fields after `version` are optional. Absence means `resolution: assisted` and the branch
+current at goal intake.
 
-### 4.1 Escalation
+- `assisted` lets the agent plan and implement normally but sends consequential unresolved
+  architecture, compatibility, side-effect, or governance changes to the human.
+- `auto` lets the agent resolve those choices within the current request and accepted authority.
 
-`escalation` chooses the resolver of a consequential semantic ambiguity:
+Neither mode authorizes incompatible explicit goals, security or money effects, production data,
+irreversibility, push, deployment, publication, or other external mutations without exact request
+authority. Planning policy, worker availability, and documentation roots are runtime or repository
+facts, not configuration.
 
-- `human` — a human resolves critical missing authority or incompatible governing direction.
-- `agent` — the agent may exercise delegated judgment within already accepted intent.
+## 5. Addressing and domains
 
-Agent resolution may choose a reversible, verifiable implementation, establish unambiguous
-additive governance from the current request, and compose compatible constraints. It may not
-silently weaken a user-defined contract, choose between incompatible authoritative domain goals,
-or authorize security, permissions, money, production data, irreversible effects, or external
-mutations. Those require exact request authority in every mode.
+Every ordinary path has a mechanically derived coordination scope:
 
-Escalation is not question timing. A harness with no available human naturally holds a required
-question. The resolution is later admitted or rejected for durable capture by `intent-record`;
-capture does not decide who had authority to resolve it.
+- visible top-level directories become `area.<slug>`;
+- declared package roots may add `pkg.<slug>`;
+- root files and hidden top-level paths belong to `area.root`;
+- `.intent/` is outside implementation scope claims.
 
-Absence defaults to `human`.
+Derived scopes organize claims and validate commit trailers. They carry no semantics or authority.
 
-### 4.2 Integration target
+There is no tracked route record. Routing is the brief-time operation that selects semantic
+domains and mechanically intersects declared surfaces. A separate pointer layer would repeat
+governance without adding authority.
 
-When `integration_branch` is present, it must name an existing local branch or the current
-unborn branch before the first commit. When absent, the
-branch current at goal intake becomes the target. The resolved name and head are captured once
-and carried through workboards and leases; a worker's feature branch must never become the
-integration target merely because it is current in that worktree.
-
-Detached HEAD without an explicit target is an error. A configured but missing branch is an
-error rather than a silent fallback.
-
-Worker availability, maximum concurrency, question timing, adoption preference, push authority,
-and mechanical latitude are not tracked configuration.
-
-Operational configuration does not enter the governing digest. Changing a target ref changes
-the tree against which landing recompiles and verifies; it does not change contract meaning.
-
-## 5. Address space
-
-One dotted namespace joins routes, contracts, trailers, workboard units, and leases.
-
-### 5.1 Derived boundaries
-
-The derived map is a pure function of the Git tree:
-
-- top-level visible directories become `area.<slug>`;
-- declared package roots may become `pkg.<slug>`;
-- root files and top-level hidden directories belong to `area.root`;
-- a hidden file inside a visible directory inherits that directory boundary;
-- canonical test directories attach to the code boundary they exercise;
-- `.intent/` is outside the address space.
-
-Derived identifiers make all work addressable, including work in repositories with no intent
-state. They organize and coordinate but carry no semantic authority.
-
-### 5.2 Governed routes
-
-`.intent/ROUTES.yml` is a sparse overlay:
+A domain is a coherent cluster of responsibility, behavior, and change. It need not be a service,
+directory, bounded context, or public interface. Domain selection is semantic model work based on
+the request, implementation, observations, and architecture material.
 
 ```yaml
 version: 1
-routes:
-  - scope: payments.checkout
-    paths: [services/payments]
-    interfaces: [CheckoutAPI]
-    domain: [user:task:checkout-direction#turn-4]
-    architecture: [architecture:repo:docs/architecture.md#checkout]
-    contracts: [contract:payments.checkout-api]
-    owners: [codeowners:.github/CODEOWNERS#payments]
+domains:
+  - id: ocr.orchestrator
+    description: Selects OCR engines and distributes work.
+    authority: user:task:ocr-architecture#turn-4
+    parent: ocr
+    material: [architecture:docs/architecture.md#ocr-orchestration]
 ```
 
-A route requires a path or interface matcher and at least one governing pointer. Paths identify
-stable boundary anchors, not every implementation file. Planned paths are allowed before
-implementation when the current goal owns them; they must exist at landing.
-
-Routes point to accepted authority. They never manufacture it.
+Validation checks identifiers, authority and material locators, parent references, and cycles. It
+never tries to prove domain membership from paths.
 
 ## 6. Contracts
 
-A contract is an authorized durable assertion on which another component, actor, or workflow
-relies:
+A contract is an accepted durable promise on which another semantic domain relies.
 
 ```yaml
 version: 1
 contracts:
-  - id: payments.checkout-api
-    assertion: A payment key produces at most one captured payment.
-    authority: user:task:checkout-direction#turn-4
-    scope: payments.checkout
-    surfaces: [repo:services/payments, repo:schemas/checkout.json]
-    material: [architecture:docs/architecture.md#checkout]
-    verifies: [command:scripts/verify-checkout-contract]
+  - id: ocr.engine-protocol.v1
+    assertion: Every engine accepts OcrRequest and returns OcrResult.
+    authority: user:task:ocr-architecture#turn-4
+    between: [ocr.orchestrator, ocr.engine.external]
+    surfaces: [interface:OcrEngine, repo:schemas/ocr-engine.json]
+    material: [architecture:docs/architecture.md#ocr-engine-protocol]
+    verifies: [command:scripts/verify-ocr-engine-protocol]
 ```
 
-Admission requires all of:
+Admission requires accepted authority, at least two domains, identifiable surfaces, defining
+material, real reliance, and executable verification. API, event, job, schema, and configuration
+contracts use the same shape; their verifier owns format-specific mechanics.
 
-- a durable normative promise;
-- real reliance beyond a one-off implementation;
-- accepted behavior would change if the assertion changed;
-- inspectable authority;
-- identifiable affected surfaces;
-- meaningful executable evidence.
+## 7. Constraints
 
-Prefer `command:<repo-relative-executable>` verifiers. `test:` and `schema:` locators remain
-valid when atomic landing can execute them directly; otherwise provide a command wrapper.
-`contract:<id>` may compose contracts but must ultimately resolve to executable evidence.
+A constraint is an accepted assertion about permitted architecture or behavior within one or more
+domains.
 
-A route does not imply a contract. Lacking reliance, the item is documentation. Lacking
-authority, it is a candidate. Lacking executable verification, it is a governing direction or
-verifier-authoring task, not an active operational contract.
+```yaml
+version: 1
+constraints:
+  - id: ocr.provider-isolation
+    assertion: Provider-specific behavior remains inside its engine domain.
+    authority: user:task:ocr-architecture#turn-4
+    applies_to: [ocr.orchestrator, ocr.engine.external]
+    surfaces: [repo:src/ocr]
+    material: [architecture:docs/architecture.md#ocr-engine-isolation]
+    verifies: [command:scripts/check-ocr-dependencies]
+```
 
-Contract record changes classify mechanically:
+`surfaces` and `verifies` are optional. Constraint applicability and compliance may be semantic.
+When a constraint applies, landing requires an explicit prospective-tree review acknowledgement and
+runs its verifier when present. Assisted resolution asks only when compliance is ambiguous or the
+accepted constraint would change.
 
-- **extension** — purely additive contract, surface, material, or verifier;
-- **move** — path anchors follow the diff's real rename map without semantic change;
-- **breaking** — an assertion, authority, surface, verifier, or compatibility promise is
-  weakened, removed, or rewritten.
+ADRs contain rationale. There is no separate decision object: binding consequences become domains,
+contracts, or constraints; nonbinding durable facts become observations; Git retains superseded
+content.
 
-Extensions and moves may proceed with suitable delegated authority and green verification.
-Breaking changes require exact authority after foreign reliance exists.
+## 8. Material, audits, and observations
 
-## 7. Adoption
+Architecture material may live anywhere in the repository. Governing records reference exact ADRs,
+diagrams, specifications, schemas, or sections. A global docs folder is neither configured nor
+assumed.
 
-Seeding is promotion, not inventory. The derived boundary map makes every ordinary path
-addressable without tracked state. Adoption promotes only selected boundaries into durable routes
-or contracts.
+An audit is a tracked report over a declared commit and exact tree. It contains scope, evidence,
+bounded findings, and whether record, authority, verifier work, or no action follows. Audit is
+non-authoritative even though it is committed.
 
-### 7.1 Fresh repository algorithm
+```yaml
+version: 1
+id: audit-2026-09-02-ocr
+ground: 8a3e7d2
+tree: e1c52f0
+mode: scope
+domains: [ocr.orchestrator, ocr.engine.external]
+paths: [src/ocr, schemas/ocr.json]
+findings:
+  - id: engine-boundary
+    summary: Both engines already depend on a shared request and result shape.
+    evidence: [repo:schemas/ocr.json, interface:OcrEngine]
+    proposed: contract
+    disposition: adoptable
+    authority: user:task:ocr-architecture#turn-4
+```
+
+`proposed` is `domain`, `contract`, `constraint`, `observation`, or `none`. `disposition` is
+`adoptable`, `needs-authority`, `needs-verifier`, `observation-only`, or `no-action`. Finding ids
+are stable handles within the audit; adoption may name one when several findings exist, but the
+normal in-context flow is simply `intent-record adopt`.
+
+An observation is a tracked fact relevant to a semantic boundary but not binding. It records a
+statement, evidence, related governance identifiers, and a ground commit. Audit and observation
+freshness derives from ancestry and intersecting evidence changes. Neither enters governing digests
+or gates landing.
+
+```yaml
+version: 1
+id: ocr-provider-layout
+ground: 8a3e7d2
+statement: Provider implementations currently live below src/ocr/providers.
+evidence: [repo:src/ocr/providers]
+relates_to: [domain:ocr.engine.external]
+```
+
+## 9. Adoption
+
+Adoption is promotion, not seeding or inventory.
 
 ```text
-brief first goal
-  → explicit intent setup or critical shared boundary needed now?
-      → no: work observed; implement and land
-      → yes: capture the smallest user charter
-          → intent-audit scope on planned touch areas
-          → propose routes and verifiable contracts
-          → resolve authority
-          → intent-record accepted rows
-          → validate and atomically land intent
-          → recompile brief
-          → implement
+brief current work
+  → no critical durable boundary: implement and land
+  → boundary needs durable meaning: scoped audit
+      → no record needed: continue
+      → authority or verifier missing: resolve bounded issue
+      → accepted: record material plus minimal governance
+          → validate
+          → re-brief
+          → dependent implementation may diverge
 ```
 
-The charter may name macro goals and non-goals, planned critical interfaces or protocols, and
-communication or integration constraints. It is not a speculative repository taxonomy. A blank
-repository does not trigger seeding merely because it is blank. The first intent landing may also
-be the repository's root commit.
+`intent-audit` writes tracked evidence. `intent-record` is the only writer of accepted domains,
+contracts, constraints, and their defining material. A full audit requires an explicit human
+request and uses `--assisted` or `--auto` only after that authorization.
 
-### 7.2 Mature repository algorithm
+## 10. Briefing
 
-```text
-brief current goal
-  → route found: use accepted intent
-  → no route: observed by default
-      → touched boundary is critical or recurrent?
-          → no: implement and land
-          → yes: intent-audit scope on touched area and immediate reliance
-              → propose minimal candidates
-              → resolve authority
-              → governing now? intent-record before dependent work
-              → advisory only? suggest after landing
-```
+A brief selects semantic domains, then compiles their domains, contracts, constraints, and live
+claims. Contracts may also be reached mechanically through declared surfaces. Constraints with
+declared surfaces can be found mechanically, but domain selection remains semantic.
 
-Existing code, tests, documents, and history supply evidence. They do not grant authority or make
-accidental behavior normative. Repository-wide adoption requires an explicit request and proceeds
-in bounded batches.
+Reach is:
 
-### 7.3 Audit and discovery
+- `local` — no accepted binding record intersects;
+- `bounded` — applicable accepted records remain unchanged;
+- `open` — defining material, verification, or additive governance changes;
+- `gated` — accepted governance is removed or rewritten.
 
-`intent-audit` is the only discovery path and never writes tracked intent. A scoped audit may
-activate when current work becomes contract-first. It examines only:
+The digest covers only selected domain, contract, and constraint content. Configuration, audits,
+observations, worker availability, Git ancestry, and runtime never enter it.
 
-- the intended touch paths;
-- their immediate imports and consumers;
-- schemas and public interfaces;
-- existing executable checks;
-- stable architecture documents, ADRs, or accepted specifications;
-- the derived top-level boundary map.
+## 11. Parallel planning and leases
 
-It proposes a stable scope, minimal anchors, governing sources, critical assertions, consumers,
-and verifier commands.
+One prompt may contain several outcomes. The model decomposes them into units; tooling validates:
 
-A full repository audit requires an explicit request from the human. Missing coverage,
-recurrence, or agent judgment may recommend one but cannot start it. After authorization,
-`--autonomous` completes bounded batches without interruption and leaves unresolved authority as
-questions; `--assisted` asks only when clarification would materially change a candidate. Both
-modes are read-only, inspect a declared snapshot, and avoid route-coverage scoring.
+- an existing captured target and causal integration ground;
+- selected semantic domains and their exact governing digest;
+- an acyclic dependency graph;
+- meaningful verification for every unit;
+- provider-before-consumer `provides` and `relies_on` edges;
+- disjoint unordered path, interface, and governance claims.
 
-### 7.4 Establishment
+Sharing a domain does not by itself cause a collision. Plans contain no progress fields. Landed
+state derives from first-parent `Intent-Unit` trailers, active from leases, and readiness from the
+dependency graph.
 
-With `escalation: human`, a human accepts, edits, or rejects one bounded batch. With
-`escalation: agent`, the agent may accept only unambiguous additive governance supported by the
-current request or an already accepted source.
+A lease records unit, owner, branch, worktree, task, paths, interfaces, claimed governance,
+selected domains, governing digest, integration target and ground, causal tip, and expiry. Landings
+that intersect path, interface, or governance claims make it stale. Expiry only schedules a
+liveness check; ancestry, ref/worktree existence, and tip movement determine dead, renewing, or
+quiescent state.
 
-Accepted rows are written through `intent-record`, mechanically validated, and their new
-verifiers executed. The brief is then recompiled.
+## 12. Prospective landing
 
-`intent-record` is the sole tracked-state writer. It accepts resolved audit candidates or a
-complete direct user instruction; it never discovers or grants authority.
+Landing captures the integration head, constructs a direct or merge candidate without moving the
+target, and checks it out detached. Against that exact tree it:
 
-For one executor, an explicitly authorized new contract and its first implementation may share
-one atomic landing. When independent consumers must rely on the contract, the contract-setting
-unit lands before they diverge.
+1. recomputes semantic reach from actual paths and selected domains;
+2. resolves open or gated authority;
+3. validates all tracked intent;
+4. validates derived scope and semantic domain trailers;
+5. runs affected contract and constraint verifiers plus repository checks;
+6. requires acknowledgement of every affected semantic constraint review;
+7. authenticates coordinated leases and their combined claims;
+8. compare-and-swaps the integration ref from the captured head;
+9. releases landed leases and removes a completed plan.
 
-### 7.5 Scope of adoption
+Any failure before the ref update leaves the target unchanged. If another landing wins the race,
+compare-and-swap fails rather than overwriting it.
 
-A fresh repository starts from user goals and planned critical boundaries, not an empty
-filesystem inventory. A mature repository defaults to touched-area adoption. A missing verifier
-produces a route or verifier-authoring task, not an active operational contract.
+## 13. Mechanical and semantic ownership
 
-Existing code and history are evidence of structure and reliance, never normative authority.
+Mechanics owns schemas, reference integrity, derived scopes, plan DAGs, reliance order, claim
+overlap, causal freshness, governing digests, affected verifier selection, exact-tree construction,
+trailer checks, lease authentication, and atomic ref updates.
 
-Recurrence across completed landings may produce a post-landing adoption suggestion. It never
-blocks, reopens, or amends the completed landing.
+Model judgment owns outcome decomposition, domain selection, distinguishing contracts from
+constraints, interpreting evidence, authoring accepted assertions and material, reviewing semantic
+constraint compliance, and resolving incompatible meaning under configured authority.
 
-## 8. Brief compilation
-
-A brief is read-only and contains the smallest governing context that changes execution.
-
-Inputs are the goal and intended paths, interfaces, and scopes. The compiler reads matching
-routes, referenced contracts, active decisions, and intersecting live leases.
-
-Posture:
-
-- **governed** — applicable routes or contracts exist;
-- **observed** — no durable contract applies; the request and repository evidence bound this
-  goal;
-- **contract-first** — a critical durable boundary must be established before dependent work.
-
-Reach is semantic:
-
-- `local` — no contract reliance intersects;
-- `bounded` — contract surfaces intersect and verifiers can measure preservation;
-- `open` — defining material or verifier strength changed;
-- `gated` — an existing contract record changed breakingly.
-
-Boundary count, derived spread, worker availability, and execution complexity do not increase
-reach. They may inform optional coordination after briefing.
-
-The digest is content identity over matched routes, contracts, and active decisions. It excludes
-operational configuration and Git ancestry. A brief stays valid until that content changes or
-scope materially expands.
-
-## 9. Coordination
-
-Coordination activates only for:
-
-- two or more independently verifiable units that can execute concurrently;
-- independently owned claims;
-- one contract-setting unit followed by several consumers;
-- a handoff or interruption requiring resumable ownership.
-
-Multiple paths, directories, scopes, or sequential steps are insufficient.
-
-### 9.1 Workboard
-
-A workboard contains an id, goal, captured integration target, and units with objectives,
-dependencies, claims, relied-on contracts, and verification. It contains no progress fields.
-
-Unclaimed entries are fluid. A leased or landed unit is pinned. Status is derived:
-
-- landed from first-parent `Intent-Unit` trailers;
-- active from a live lease;
-- waiting or dispatchable from dependency edges.
-
-Unordered units require disjoint claims. The model proposes topology; tooling validates
-references, overlap, and pinning.
-
-### 9.2 Leases
-
-A lease is minted just in time for every dispatched worker and records its owner, branch,
-worktree, task, path/interface claim, captured integration target and ground, causal tip, and
-expiry.
-
-A landing that intersects the claim makes the lease stale. The holder releases and reacquires it
-against the new ground. Expiry only schedules a liveness check:
-
-- merged branch, or branch and worktree gone → dead;
-- tip advanced → renew;
-- expired and unmoved → quiescent; reaping ends the reservation, not the work.
-
-Leases are a local substrate shared across linked worktrees.
-
-### 9.3 Runtime lifecycle
-
-Runtime status lists boards with derived unit state, lease lifecycle, and disposable cache counts.
-Cleanup reports before mutating. Applied cleanup removes only completed boards, dead or quiescent
-leases, governing snapshots, and verification receipts; live leases and incomplete boards remain.
-Atomic landing releases each landed lease and removes a board once all of its units have landed.
-
-## 10. Consequence resolution
-
-Proceed autonomously when work is reversible, governing contracts are known or the goal is
-honestly observed, authoritative directions compose, relevant verification can run before
-landing, and external effects are absent or explicitly authorized.
-
-Implementation uncertainty triggers investigation or a narrower experiment, not a human
-question.
-
-A consequential resolution packet identifies the conflicting properties, their authority,
-irreversible or underdelivered consequence, concrete options, and one recommendation. The
-resolver is selected by `escalation`, subject to the hard gates in §4.1.
-
-After resolution, `intent-record` captures the answer only if it is durable, non-testable,
-likely to be re-derived incorrectly, needed beyond the current goal, cheaper to carry, and
-backed by inspectable authority. Most implementation choices correctly remain uncaptured.
-
-## 11. Atomic landing
-
-Landing verifies a prospective tree before advancing the integration ref.
-
-For a direct unit:
-
-1. Capture the integration head.
-2. Build a temporary index from that head.
-3. Apply only the explicitly selected working paths.
-4. Write a tree and dangling candidate commit with tool-generated trailers.
-
-On an unborn current branch, the temporary index begins from the empty tree and the candidate is
-a root commit. No bootstrap commit or branch is created.
-
-For a coordinated branch:
-
-1. Capture the integration head.
-2. Use Git's merge-tree machinery to construct the prospective merge tree.
-3. Create a dangling two-parent candidate commit.
-
-For either shape:
-
-1. Check out the candidate in a detached temporary worktree.
-2. Recompute reach from its exact diff.
-3. Resolve authority for open or gated transitions.
-4. Validate the complete intent state.
-5. Validate every changed path against its `Intent-Scope` claims. Dotfiles inherit their
-   parent boundary; `.intent/` requires no scope claim.
-6. Execute all affected contract verifiers and repository checks.
-7. Cache successful receipts by candidate tree and check identity.
-8. Compare-and-swap the integration ref from the captured old head to the candidate.
-9. Update the integration worktree, release landed leases, and remove a completed workboard.
-
-Any failure before step 8 leaves the integration ref unchanged. If another landing advances the
-target during verification, compare-and-swap fails rather than overwriting it.
-
-A landed unit carries:
-
-```text
-Intent-Unit: <id>
-Intent-Scope: <scope>
-```
-
-A coordinated convergence may also carry:
-
-```text
-Intent-Board: <id>
-Intent-Board-Digest: <content identity>
-```
-
-The trailers provide binding and coordination closure, not proof that an agent read prose.
-
-A verified feature branch is ready, not landed. Local landing is part of an implementation
-request. Push, deploy, publication, destructive cleanup, and other external mutations require
-explicit request authority.
-
-## 12. Validation
-
-Mechanical validation owns:
-
-- configuration schema and branch existence;
-- route shape, pointer resolution, and anchor limits;
-- contract authority, surface, material, and verifier shape;
-- decision and exception schemas;
-- derived boundary and dotfile classification;
-- record extension/move/breaking classification;
-- workboard dependency and overlap invariants;
-- lease freshness and liveness;
-- message generation and trailer containment;
-- prospective-tree construction and atomic ref updates.
-
-Model judgment owns:
-
-- interpreting the requested outcome;
-- distinguishing descriptive evidence from accepted authority;
-- deciding whether a boundary deserves durable governance;
-- proposing useful concurrent units;
-- composing architectural and domain constraints;
-- classifying a failed verifier as a bug or intended transition;
-- explaining a consequential unresolved choice.
-
-Scripts report facts and enforce invariants. They do not invent normative meaning.
-
-## 13. Design rules
-
-- Normal work reads many intent rows and writes none.
-- Unrouted work remains executable.
-- Governance and coordination never activate one another.
-- One coherent outcome lands once.
-- Plans are the fluid unclaimed region of a workboard, not a durable artifact.
-- Leases reserve live ownership, not semantic authority.
-- Contracts are few, critical, accepted, and executable.
-- Operational configuration never changes governance freshness.
-- The integration ref moves only after the exact prospective tree passes verification.
-- Adoption is separate from completion unless the current request explicitly establishes the
-  contract being implemented.
-- The smallest useful lifecycle is always preferred: brief, work, land.
+The governing rule remains: use the smallest lifecycle that safely completes the request.

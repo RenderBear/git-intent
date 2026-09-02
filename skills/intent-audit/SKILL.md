@@ -1,48 +1,31 @@
 ---
 name: intent-audit
-description: Discover candidate intent and diagnose existing intent without writing repository state. Use scoped audits when current work exposes a critical durable boundary; run a full repository audit only when a human explicitly requests it.
+description: Inspect a task scope or explicitly requested repository for missing, stale, or conflicting domains, contracts, constraints, and durable observations, then write a tracked non-authoritative audit report.
 ---
 
 # intent-audit
 
-Audit is the only discovery path. It produces inspectable candidate packets; it never writes
-`.intent/` or decides that a candidate has authority.
+Audit discovers evidence and writes `.intent/audits/<id>.yml`; it never grants authority or changes
+accepted governance. Use a scoped audit when current work exposes a consequential boundary or the
+user requests discovery. A full audit requires an explicit repository-wide request.
 
-## Operations
+Run `scripts/audit-support.sh scope --paths ...`, or after full-audit authorization run
+`full --assisted|--auto`. Read [references/discovery.md](references/discovery.md) for scoped work,
+[references/full-audit.md](references/full-audit.md) for full work, and
+[references/orientation.md](references/orientation.md) only in an unfamiliar repository.
 
-```text
-intent-audit scope [--paths ...]   inspect one planned or touched boundary
-intent-audit full --autonomous     inspect the repository after one human authorization
-intent-audit full --assisted       inspect with human clarification between uncertain batches
-intent-audit recurrence            report recurrent unrouted derived boundaries
-```
+Write the inspected `ground` commit and exact `tree`, semantic scope, paths, evidence, and bounded
+findings. Classify each finding for the reader as adoptable, needing authority, needing a verifier,
+observation-only, or no action. Existing implementation and history are evidence, never normative
+authority.
 
-Use `scripts/audit-support.sh` for the deterministic map and candidate evidence.
+End with one explicit transition:
 
-## Scoped audit
+- `NO RECORD NEEDED`;
+- `RECORD READY — intent-record adopt`;
+- `RESOLUTION REQUIRED`;
+- `VERIFIER REQUIRED`.
 
-A scoped audit may begin organically when `intent-brief` classifies current work as
-contract-first, or when the user explicitly asks for discovery. Inspect only intended paths,
-immediate consumers, schemas, public interfaces, executable checks, and stable governing sources.
-
-Read [references/discovery.md](references/discovery.md) for fresh- and mature-repository handling.
-When entering an unfamiliar repository, read
-[references/orientation.md](references/orientation.md) and keep orientation derived and compact.
-
-## Full audit
-
-Run `full` only when the current human request explicitly asks for a whole-repository audit.
-An agent, missing route coverage, recurrence report, or prior recommendation cannot authorize it.
-The mode controls execution after authorization:
-
-- `--autonomous` completes all bounded batches without pausing and lists unresolved authority;
-- `--assisted` asks only when an answer would materially change a candidate batch.
-
-Read [references/full-audit.md](references/full-audit.md) before running a full audit.
-
-## Output boundary
-
-Report the audited snapshot, evidence, contradictions, critical reliance seams, candidate batches,
-and unresolved authority. Do not score route coverage, propose governance for every derived
-boundary, or treat code and history as normative. Send accepted candidates to `intent-record`;
-the audit itself never mutates durable state.
+`scripts/audit-support.sh fresh <audit>` derives freshness from ancestry and intersecting evidence,
+never timestamps. Accepted findings flow naturally to `intent-record`; no `candidate` selector is
+required for the current audit context.

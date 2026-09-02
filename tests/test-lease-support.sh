@@ -16,15 +16,25 @@ git -C "$fixture" config user.email test@example.com
 git -C "$fixture" config commit.gpgsign false
 mkdir -p "$fixture/src"
 echo x >"$fixture/src/a.py"
-git -C "$fixture" add src
+mkdir -p "$fixture/.intent"
+cat >"$fixture/.intent/DOMAINS.yml" <<'EOF'
+version: 1
+domains:
+  - id: ocr.engine
+    description: Executes OCR.
+    authority: user:task:test#turn-1
+EOF
+git -C "$fixture" add src .intent/DOMAINS.yml
 git -C "$fixture" commit -qm seed
+digest=$(cd "$fixture" && sh "$root/skills/intent-brief/scripts/brief-support.sh" digest ocr.engine | sed -n 's/^DIGEST: //p')
 
-leases="$fixture/intent-work/leases"
+leases="$fixture/.intent/runtime/leases"
 
 ok() { echo "ok - $1"; }
 die() { echo "not ok - $1"; exit 1; }
 
-out=$(cd "$fixture" && sh "$lease" create u1 --scope demo.unit --paths src/a.py)
+out=$(cd "$fixture" && sh "$lease" create u1 --scope area.src --paths src/a.py \
+  --interfaces SharedEngine --governance contract:ocr.engine --domains ocr.engine --digest "$digest")
 printf '%s\n' "$out" | grep -q '^LEASE: u1 created — no live unit intersects' || die "dispatch mints unconditionally and reports no intersection"
 [ -f "$leases/u1.yml" ] || die "every dispatch mints a lease"
 grep -q '^version: 1$' "$leases/u1.yml" || die "lease carries the schema version"
@@ -33,11 +43,16 @@ grep -q '^ground: ' "$leases/u1.yml" || die "lease records the integration groun
 grep -q '^created: ....-..-..T..:..:..Z$' "$leases/u1.yml" || die "created is UTC RFC 3339"
 ok "create mints unconditionally with tip and ground recorded"
 
-out=$(cd "$fixture" && sh "$lease" create u2 --scope demo.unit.sub --duration 30m)
-printf '%s\n' "$out" | grep -q '^LEASE: u2 created — intersects u1' || die "scope-related live unit is reported as intersecting"
-ok "create reports intersecting live units"
+if (cd "$fixture" && sh "$lease" create missing-digest --paths src/missing --domains ocr.engine >/dev/null 2>&1); then
+  die "semantic lease was accepted without its governing digest"
+fi
+ok "semantic domain claims require their governing digest"
 
-if (cd "$fixture" && sh "$lease" create u1 --scope demo.unit >/dev/null 2>&1); then
+out=$(cd "$fixture" && sh "$lease" create u2 --scope area.src --interfaces SharedEngine --duration 30m)
+printf '%s\n' "$out" | grep -q '^LEASE: u2 created — intersects u1' || die "interface-related live unit is not reported"
+ok "create reports intersecting interface claims without treating domains as locks"
+
+if (cd "$fixture" && sh "$lease" create u1 --paths src/a.py >/dev/null 2>&1); then
   die "existing lease is never overwritten"
 fi
 ok "create never overwrites an existing lease"
@@ -54,8 +69,8 @@ expires_after=$(sed -n 's/^expires:[[:space:]]*//p' "$leases/u2.yml")
 ok "renew preserves created, moves expires, re-records the tip"
 
 out=$(cd "$fixture" && sh "$lease" list)
-printf '%s\n' "$out" | grep -q '^LEASE: u1 demo.unit — expires .* (live)$' || die "list marks live leases"
-out=$(cd "$fixture" && sh "$lease" list --scope demo.unit.sub)
+printf '%s\n' "$out" | grep -q '^LEASE: u1 area.src — expires .* (live)$' || die "list marks live leases"
+out=$(cd "$fixture" && sh "$lease" list --scope area.src)
 printf '%s\n' "$out" | grep -q 'u2' || die "list --scope keeps related leases"
 ok "list reports expiry state and filters by scope"
 
@@ -80,7 +95,7 @@ git -C "$fixture" add src/m.py
 git -C "$fixture" commit -qm m1
 git -C "$fixture" checkout -q main
 git -C "$fixture" merge -q --no-ff unit/m1 -m "merged"
-(cd "$fixture" && sh "$lease" create m1 --scope demo.m --branch unit/m1 --duration 1s >/dev/null)
+(cd "$fixture" && sh "$lease" create m1 --scope area.src --paths src/m.py --branch unit/m1 --duration 1s >/dev/null)
 out=$(cd "$fixture" && sh "$lease" reap)
 printf '%s\n' "$out" | grep -q '^DEAD: m1 (branch merged into main)$' || die "merged branch is conclusively DEAD by ancestry"
 ok "a merged branch is DEAD by ancestry, never dates"
@@ -91,7 +106,7 @@ echo q >"$fixture/src/q.py"
 git -C "$fixture" add src/q.py
 git -C "$fixture" commit -qm q1
 git -C "$fixture" checkout -q main
-(cd "$fixture" && sh "$lease" create q1 --scope demo.q --branch unit/q1 --duration 1s >/dev/null)
+(cd "$fixture" && sh "$lease" create q1 --scope area.src --paths src/q.py --branch unit/q1 --duration 1s >/dev/null)
 sleep 2
 out=$(cd "$fixture" && sh "$lease" reap)
 printf '%s\n' "$out" | grep -q '^QUIESCENT: q1 — expired, tip unmoved' || die "expired with unmoved tip is QUIESCENT"
@@ -125,4 +140,4 @@ if (cd "$fixture" && sh "$lease" release r1 >/dev/null 2>&1); then
 fi
 ok "release deletes exactly one lease and fails when absent"
 
-echo "10 lease-support checks passed"
+echo "11 lease-support checks passed"

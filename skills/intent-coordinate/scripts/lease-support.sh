@@ -1,6 +1,6 @@
 #!/bin/sh
-# Deterministic lease mechanics: ephemeral dispatch leases in the visible
-# shared runtime, each carrying its unit's claim. Owns the YAML shape, the intersection
+# Deterministic lease mechanics: ephemeral dispatch leases in the shared
+# ignored runtime, each carrying its unit's claim. Owns the YAML shape, the intersection
 # check, and dissolution. Clocks schedule, causality decides: expiry carries
 # no authority — it only schedules the conclusive liveness check, because a
 # crashed worker emits no further commits and causal order alone cannot
@@ -14,24 +14,27 @@ set -u
 usage() {
   cat >&2 <<'EOF'
 usage:
-  lease-support.sh create <unit> [--scope <dotted.scope>] [--paths <p>...]
-                   [--interfaces <name>...] [--branch <b>] [--worktree <w>]
+  lease-support.sh create <unit> [--scope <derived.scope>] [--paths <p>...]
+                   [--interfaces <name>...] [--governance <ref>...]
+                   [--domains <id>...] [--digest <hash>]
+                   [--branch <b>] [--worktree <w>]
                    [--task <t>] [--owner <o>] [--integration-target <b>]
                    [--duration 2h]
       Mint the unit's lease — every dispatch, unconditionally; the recorded
-      claim is what keeps concurrent workboards visible to each other. Reports any
+      claim is what keeps concurrent plans visible to each other. Reports any
       intersecting live unit. Records the branch tip and the integration
       ground at grant. Never overwrites an existing lease.
   lease-support.sh renew <unit> [--duration 2h]
       Extend expiry from now and re-record the branch tip; preserves created.
   lease-support.sh release <unit>
       Delete exactly that unit's lease file.
-  lease-support.sh list [--scope <dotted.scope>]
+  lease-support.sh list [--scope <derived.scope>] [--domain <id>]
       One line per lease with its expiry state.
   lease-support.sh fresh <unit>
       Coordination-side freshness: STALE when a landing on the resolved
       integration branch since the recorded ground intersects the claimed
-      paths or interfaces — re-lease against the new ground or release.
+      paths, interfaces, or claimed governance — re-lease against the new
+      ground or release.
       FRESH otherwise. Exit 1 on STALE.
   lease-support.sh reap [--apply]
       The conclusive liveness check, scheduled by expiry and decided
@@ -95,15 +98,6 @@ list_field() {
   sed -n "s/^$2:[[:space:]]*//p" "$1" | head -1 | tr '[],' '   '
 }
 
-scopes_related() {
-  a=$1 b=$2
-  [ -n "$a" ] && [ -n "$b" ] || return 1
-  [ "$a" = "$b" ] && return 0
-  case "$a" in "$b".*) return 0 ;; esac
-  case "$b" in "$a".*) return 0 ;; esac
-  return 1
-}
-
 paths_related() {
   for p1 in $1; do
     for p2 in $2; do
@@ -135,7 +129,8 @@ do_create() {
   [ "$#" -ge 1 ] || usage
   unit=$1
   shift
-  scope="" paths="" interfaces="" branch="" worktree="" task="" owner="" integration_target="" duration=2h
+  scope="" paths="" interfaces="" governance="" domains="" digest=""
+  branch="" worktree="" task="" owner="" integration_target="" duration=2h
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --scope) [ "$#" -ge 2 ] || usage; scope=$2; shift 2 ;;
@@ -145,15 +140,42 @@ do_create() {
       --task) [ "$#" -ge 2 ] || usage; task=$2; shift 2 ;;
       --owner) [ "$#" -ge 2 ] || usage; owner=$2; shift 2 ;;
       --integration-target) [ "$#" -ge 2 ] || usage; integration_target=$2; shift 2 ;;
+      --digest) [ "$#" -ge 2 ] || usage; digest=$2; shift 2 ;;
       --paths)
         shift
         while [ "$#" -gt 0 ] && [ "${1#--}" = "$1" ]; do paths="$paths $1"; shift; done ;;
       --interfaces)
         shift
         while [ "$#" -gt 0 ] && [ "${1#--}" = "$1" ]; do interfaces="$interfaces $1"; shift; done ;;
+      --governance)
+        shift
+        while [ "$#" -gt 0 ] && [ "${1#--}" = "$1" ]; do governance="$governance $1"; shift; done ;;
+      --domains)
+        shift
+        while [ "$#" -gt 0 ] && [ "${1#--}" = "$1" ]; do domains="$domains $1"; shift; done ;;
       *) usage ;;
     esac
   done
+  [ -n "$paths$interfaces$governance" ] || {
+    echo "git-intent: lease requires a path, interface, or governance claim" >&2
+    exit 2
+  }
+  if [ -n "$domains" ]; then
+    [ -n "$digest" ] || { echo "git-intent: semantic domain claims require --digest" >&2; exit 2; }
+    for domain in $domains; do
+      case "$domain" in *[!a-zA-Z0-9._-]*|'') echo "git-intent: malformed semantic domain '$domain'" >&2; exit 2 ;; esac
+    done
+    # shellcheck disable=SC2086
+    digest_row=$(sh "$script_dir/../../intent-brief/scripts/brief-support.sh" digest $domains 2>&1) || {
+      printf 'git-intent: cannot validate lease digest: %s\n' "$digest_row" >&2
+      exit 2
+    }
+    actual_digest=$(printf '%s\n' "$digest_row" | sed -n 's/^DIGEST:[[:space:]]*//p')
+    [ "$digest" = "$actual_digest" ] || {
+      echo "git-intent: lease governing digest is stale (expected $digest, current $actual_digest)" >&2
+      exit 2
+    }
+  fi
   seconds=$(duration_seconds "$duration")
   [ -n "$branch" ] || branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
   [ -n "$owner" ] || owner=$branch
@@ -170,9 +192,9 @@ do_create() {
   for f in "$leases_dir"/*.yml; do
     [ -f "$f" ] || continue
     hit=0
-    scopes_related "$scope" "$(field "$f" scope)" && hit=1
+    paths_related "$paths" "$(list_field "$f" paths)" && hit=1
     [ "$hit" -eq 1 ] || { words_shared "$interfaces" "$(list_field "$f" interfaces)" && hit=1; }
-    [ "$hit" -eq 1 ] || { paths_related "$paths" "$(list_field "$f" paths)" && hit=1; }
+    [ "$hit" -eq 1 ] || { words_shared "$governance" "$(list_field "$f" governance)" && hit=1; }
     [ "$hit" -eq 1 ] && hits="$hits $(field "$f" unit)"
   done
 
@@ -193,6 +215,8 @@ do_create() {
   mkdir -p "$leases_dir"
   plist=$(echo $paths | sed 's/ /, /g')
   ilist=$(echo $interfaces | sed 's/ /, /g')
+  glist=$(echo $governance | sed 's/ /, /g')
+  dlist=$(echo $domains | sed 's/ /, /g')
   {
     printf 'version: 1\n'
     printf 'unit: %s\n' "$unit"
@@ -203,6 +227,9 @@ do_create() {
     [ -z "$scope" ] || printf 'scope: %s\n' "$scope"
     [ -z "$ilist" ] || printf 'interfaces: [%s]\n' "$ilist"
     [ -z "$plist" ] || printf 'paths: [%s]\n' "$plist"
+    [ -z "$glist" ] || printf 'governance: [%s]\n' "$glist"
+    [ -z "$dlist" ] || printf 'domains: [%s]\n' "$dlist"
+    [ -z "$digest" ] || printf 'governing_digest: %s\n' "$digest"
     [ -z "$tip" ] || printf 'tip: %s\n' "$tip"
     [ -z "$ground" ] || printf 'ground: %s\n' "$ground"
     [ -z "$target" ] || printf 'integration_target: %s\n' "$target"
@@ -263,6 +290,8 @@ do_fresh() {
   [ -n "$landed" ] || { echo "FRESH: $unit — nothing landed since the recorded ground"; return 0; }
   claim_paths=$(list_field "$file" paths)
   claim_ifaces=$(list_field "$file" interfaces)
+  claim_governance=$(list_field "$file" governance)
+  claim_domains=$(list_field "$file" domains)
   hitp=""
   for lp in $landed; do
     for cp in $claim_paths; do
@@ -278,6 +307,11 @@ do_fresh() {
         break
       fi
     done
+  fi
+  if [ -z "$hitp" ] && [ -n "$claim_governance$claim_domains" ]; then
+    if printf '%s\n' "$landed" | grep -Eq '^\.intent/(DOMAINS|CONTRACTS|CONSTRAINTS)\.ya?ml$'; then
+      hitp="governance"
+    fi
   fi
   if [ -n "$hitp" ]; then
     echo "STALE: $unit — intersecting landing touched $hitp; re-lease against the new ground or release"
@@ -296,9 +330,11 @@ do_release() {
 
 do_list() {
   want=""
+  want_domain=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --scope) [ "$#" -ge 2 ] || usage; want=$2; shift 2 ;;
+      --domain) [ "$#" -ge 2 ] || usage; want_domain=$2; shift 2 ;;
       *) usage ;;
     esac
   done
@@ -307,8 +343,9 @@ do_list() {
     [ -f "$f" ] || continue
     lscope=$(field "$f" scope)
     if [ -n "$want" ]; then
-      scopes_related "$want" "$lscope" || continue
+      [ "$want" = "$lscope" ] || continue
     fi
+    [ -z "$want_domain" ] || words_shared "$want_domain" "$(list_field "$f" domains)" || continue
     state=live
     lease_expired "$f" && state=expired
     found=1

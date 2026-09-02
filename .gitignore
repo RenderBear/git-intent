@@ -18,9 +18,7 @@ dist/
 .DS_Store
 Thumbs.db
 
-# NOTE: .intent/ is deliberately NOT ignored: routes, contracts, decisions,
-# proposals, exceptions, and cold history are reviewed state.
-
-# Visible local runtime shared by linked worktrees. Its contents are
-# inspectable and disposable but never repository meaning.
-intent-work/
+# NOTE: .intent/ is deliberately NOT ignored. Accepted domains, contracts,
+# constraints, audits, and observations are reviewed repository state.
+# `.intent/runtime/` creates its own ignore marker because it is local planning
+# state shared by linked worktrees and must also work before tracked intent exists.

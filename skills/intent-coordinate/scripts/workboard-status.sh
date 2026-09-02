@@ -1,5 +1,5 @@
 #!/bin/sh
-# Derive workboard status from repository facts. A board contains objectives,
+# Derive plan status from repository facts. A plan contains objectives,
 # dependencies, and claims, never stored status. Landed comes from Intent-Unit
 # trailers; active comes from live leases; readiness comes from dependencies.
 
@@ -7,22 +7,22 @@ set -u
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 runtime=$(sh "$script_dir/runtime-support.sh" root) || exit 2
-boards_dir="$runtime/boards"
+plans_dir="$runtime/plans"
 
 if [ "$#" -lt 1 ]; then
-  if [ -d "$boards_dir" ] && ls "$boards_dir"/*.yml >/dev/null 2>&1; then
-    echo "workboards:"
-    for f in "$boards_dir"/*.yml; do
+  if [ -d "$plans_dir" ] && ls "$plans_dir"/*.yml >/dev/null 2>&1; then
+    echo "plans:"
+    for f in "$plans_dir"/*.yml; do
       b=$(basename "$f")
       echo "  ${b%.yml}"
     done
   else
-    echo "no workboards"
+    echo "no plans"
   fi
   exit 0
 fi
 
-board_id=$1
+plan_id=$1
 shift
 pinned_only=0
 if [ "${1:-}" = "--pinned" ]; then
@@ -30,17 +30,17 @@ if [ "${1:-}" = "--pinned" ]; then
   shift
 fi
 [ "$#" -eq 0 ] || {
-  echo "usage: workboard-status.sh [<board> [--pinned]]" >&2
+  echo "usage: workboard-status.sh [<plan> [--pinned]]" >&2
   exit 2
 }
 
-board="$boards_dir/$board_id.yml"
-[ -f "$board" ] || {
-  echo "git-intent: no workboard '$board_id'" >&2
+plan="$plans_dir/$plan_id.yml"
+[ -f "$plan" ] || {
+  echo "git-intent: no plan '$plan_id'" >&2
   exit 1
 }
 
-target=$(sed -n 's/^integration_target:[[:space:]]*//p' "$board" | head -1)
+target=$(sed -n 's/^integration_target:[[:space:]]*//p' "$plan" | head -1)
 [ -n "$target" ] || target=HEAD
 git rev-parse -q --verify "$target" >/dev/null 2>&1 || target=HEAD
 
@@ -63,7 +63,7 @@ units() {
       gsub(/[[:space:]]+/, " ", deps); sub(/^ /, "", deps); sub(/ $/, "", deps)
     }
     END { if (id != "") print id "|" deps }
-  ' "$board"
+  ' "$plan"
 }
 
 if [ "$pinned_only" -eq 1 ]; then

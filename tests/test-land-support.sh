@@ -1,44 +1,26 @@
 #!/bin/sh
-# Verify prospective-tree validation and atomic integration-ref updates.
+# Verify exact-tree review, checks, coordinated lease authentication, and
+# atomic integration-ref updates.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 land="$root/skills/intent-land/scripts/land-support.sh"
-brief="$root/skills/intent-brief/scripts/brief-support.sh"
+lease="$root/skills/intent-coordinate/scripts/lease-support.sh"
+runtime_support="$root/skills/intent-coordinate/scripts/runtime-support.sh"
+brief_support="$root/skills/intent-brief/scripts/brief-support.sh"
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/git-intent-land-test.XXXXXX")
-fresh=""
-cleanup() { rm -rf "$fixture"; [ -z "$fresh" ] || rm -rf "$fresh"; }
+cleanup() { rm -rf "$fixture"; }
 trap cleanup EXIT HUP INT TERM
 
 git -C "$fixture" init -qb main
 git -C "$fixture" config user.name test
 git -C "$fixture" config user.email test@example.com
 git -C "$fixture" config commit.gpgsign false
-mkdir -p "$fixture/src" "$fixture/checks" "$fixture/.intent"
-echo one >"$fixture/src/a.txt"
-echo base >"$fixture/other.txt"
-cat >"$fixture/.intent/config.yml" <<'EOF'
-version: 1
-escalation: human
-EOF
-cat >"$fixture/.intent/ROUTES.yml" <<'EOF'
-version: 1
-routes:
-  - scope: area.src
-    paths: [src]
-    contracts: [contract:src.valid]
-EOF
-cat >"$fixture/.intent/CONTRACTS.yml" <<'EOF'
-version: 1
-contracts:
-  - id: src.valid
-    assertion: The source fixture is never broken.
-    authority: user:task:land-test#turn-1
-    scope: area.src
-    surfaces: [repo:src]
-    verifies: [command:checks/pass.sh]
-EOF
-cat >"$fixture/checks/pass.sh" <<'EOF'
+mkdir -p "$fixture/.intent" "$fixture/docs" "$fixture/src" "$fixture/ui" "$fixture/checks"
+printf '# Architecture\n' >"$fixture/docs/architecture.md"
+printf 'one\n' >"$fixture/src/a.txt"
+printf 'ui\n' >"$fixture/ui/view.txt"
+cat >"$fixture/checks/verify.sh" <<'EOF'
 #!/bin/sh
 test "$(cat src/a.txt)" != broken
 EOF
@@ -46,77 +28,139 @@ cat >"$fixture/checks/fail.sh" <<'EOF'
 #!/bin/sh
 exit 1
 EOF
-chmod +x "$fixture/checks/pass.sh" "$fixture/checks/fail.sh"
+chmod +x "$fixture/checks/verify.sh" "$fixture/checks/fail.sh"
+cat >"$fixture/.intent/config.yml" <<'EOF'
+version: 1
+resolution: assisted
+EOF
+cat >"$fixture/.intent/DOMAINS.yml" <<'EOF'
+version: 1
+domains:
+  - id: source
+    description: Source behavior.
+    authority: user:task:test#turn-1
+  - id: consumer
+    description: Consumes source behavior.
+    authority: user:task:test#turn-1
+EOF
+cat >"$fixture/.intent/CONTRACTS.yml" <<'EOF'
+version: 1
+contracts:
+  - id: source.protocol.v1
+    assertion: Source behavior remains consumable.
+    authority: user:task:test#turn-1
+    between: [source, consumer]
+    surfaces: [repo:src]
+    material: [architecture:docs/architecture.md]
+    verifies: [command:checks/verify.sh]
+EOF
+cat >"$fixture/.intent/CONSTRAINTS.yml" <<'EOF'
+version: 1
+constraints:
+  - id: source.layout
+    assertion: Source behavior remains inside the source domain.
+    authority: user:task:test#turn-1
+    applies_to: [source]
+    surfaces: [repo:src]
+    material: [architecture:docs/architecture.md]
+EOF
 git -C "$fixture" add -A
 git -C "$fixture" commit -qm seed
 
 ok() { echo "ok - $1"; }
 die() { echo "not ok - $1"; exit 1; }
 
-echo two >"$fixture/src/a.txt"
-echo changed >"$fixture/other.txt"
-echo unrelated >"$fixture/notes.txt"
+printf 'two\n' >"$fixture/src/a.txt"
 old=$(git -C "$fixture" rev-parse HEAD)
-out=$(cd "$fixture" && sh "$land" direct "land u1" --unit u1 --scope area.src \
-  --paths src/a.txt --check command:checks/pass.sh)
-printf '%s\n' "$out" | grep -q '^LANDED:' || die "direct landing reports success"
-new=$(git -C "$fixture" rev-parse HEAD)
-[ "$new" != "$old" ] || die "direct landing advances the integration ref"
-[ "$(git -C "$fixture" show HEAD:src/a.txt)" = two ] || die "candidate tree contains the selected change"
-git -C "$fixture" status --short | grep -q '^?? notes.txt$' || die "unrelated work remains untouched"
-git -C "$fixture" status --short | grep -q '^ M other.txt$' || die "unrelated tracked work remains untouched"
-(cd "$fixture" && sh "$brief" trailer HEAD >/dev/null) || die "landed direct commit has honest trailers"
-ok "direct landing verifies a prospective tree and preserves unrelated work"
+if (cd "$fixture" && sh "$land" direct "unreviewed" --unit u1 --scope area.src \
+    --domain source --paths src/a.txt >/dev/null 2>&1); then die "semantic constraint landed without review"; fi
+[ "$(git -C "$fixture" rev-parse HEAD)" = "$old" ] || die "failed review moved target"
+out=$(cd "$fixture" && sh "$land" direct "reviewed source" --unit u1 --scope area.src \
+  --domain source --reviewed constraint:source.layout --paths src/a.txt)
+printf '%s\n' "$out" | grep -q '^CHECK: running — command:checks/verify.sh$' || die "contract verifier did not run"
+printf '%s\n' "$out" | grep -q '^REVIEW: accepted — constraint:source.layout$' || die "constraint review not acknowledged"
+printf '%s\n' "$out" | grep -q '^LANDED:' || die "reviewed candidate did not land"
+ok "affected contracts verify and semantic constraints require prospective review"
 
-echo broken >"$fixture/src/a.txt"
+printf 'broken\n' >"$fixture/src/a.txt"
 old=$(git -C "$fixture" rev-parse HEAD)
-if (cd "$fixture" && sh "$land" direct "bad u2" --unit u2 --scope area.src \
-  --paths src/a.txt --check command:checks/fail.sh >/dev/null 2>&1); then
-  die "failing prospective check was allowed to land"
-fi
-[ "$(git -C "$fixture" rev-parse HEAD)" = "$old" ] || die "failed preflight moved the integration ref"
-[ "$(cat "$fixture/src/a.txt")" = broken ] || die "failed preflight discarded work"
-ok "failed verification leaves both the ref and working change intact"
-
+if (cd "$fixture" && sh "$land" direct "broken" --unit u2 --scope area.src --domain source \
+    --reviewed constraint:source.layout --paths src/a.txt >/dev/null 2>&1); then die "broken contract landed"; fi
+[ "$(git -C "$fixture" rev-parse HEAD)" = "$old" ] || die "failed verifier moved target"
+[ "$(cat "$fixture/src/a.txt")" = broken ] || die "failed landing discarded work"
 git -C "$fixture" checkout -q -- src/a.txt
-git -C "$fixture" checkout -q -- other.txt
-rm -f "$fixture/notes.txt"
+ok "failed verification leaves ref and working change safe"
 
-printf '# additive governance\n' >>"$fixture/.intent/CONTRACTS.yml"
+printf 'changed\n' >"$fixture/ui/view.txt"
+printf 'unrelated\n' >"$fixture/unrelated.txt"
+out=$(cd "$fixture" && sh "$land" direct "simple UI" --unit ui --scope area.ui --paths ui/view.txt)
+printf '%s\n' "$out" | grep -q '^REACH: local$' || die "simple UI landing gained governance"
+[ -f "$fixture/unrelated.txt" ] || die "selected landing removed unrelated work"
+rm "$fixture/unrelated.txt"
+ok "simple local landing remains low ceremony and preserves unrelated work"
+
+cat >>"$fixture/.intent/CONSTRAINTS.yml" <<'EOF'
+  - id: source.naming
+    assertion: Source names remain explicit.
+    authority: user:task:test#turn-2
+    applies_to: [source]
+    material: [architecture:docs/architecture.md]
+EOF
 old=$(git -C "$fixture" rev-parse HEAD)
-if (cd "$fixture" && sh "$land" direct "unresolved extension" --unit govern \
-  --scope area.src --paths .intent/CONTRACTS.yml >/dev/null 2>&1); then
-  die "contract extension landed without establishment authority"
-fi
-[ "$(git -C "$fixture" rev-parse HEAD)" = "$old" ] || die "unresolved extension moved the integration ref"
-out=$(cd "$fixture" && sh "$land" direct "authorized extension" --unit govern \
-  --scope area.src --paths .intent/CONTRACTS.yml --allow-open)
-printf '%s\n' "$out" | grep -q '^LANDED:' || die "authorized extension did not land"
-ok "contract establishment requires resolved escalation authority"
+if (cd "$fixture" && sh "$land" direct "unresolved adoption" --unit govern --scope area.root \
+    --domain source --reviewed constraint:source.layout --reviewed constraint:source.naming \
+    --paths .intent/CONSTRAINTS.yml >/dev/null 2>&1); then die "additive governance landed without resolved authority"; fi
+[ "$(git -C "$fixture" rev-parse HEAD)" = "$old" ] || die "unresolved adoption moved target"
+out=$(cd "$fixture" && sh "$land" direct "adopt naming" --unit govern --scope area.root \
+  --domain source --reviewed constraint:source.layout --reviewed constraint:source.naming \
+  --allow-open --paths .intent/CONSTRAINTS.yml)
+printf '%s\n' "$out" | grep -q '^GOVERNANCE: additive record establishment$' || die "additive governance was not classified open"
+ok "additive governance requires resolved establishment authority"
 
-git -C "$fixture" checkout -qb unit/feature
-echo feature >"$fixture/src/b.txt"
+git -C "$fixture" checkout -qb unit/worker
+printf 'worker\n' >"$fixture/src/b.txt"
 git -C "$fixture" add src/b.txt
-git -C "$fixture" commit -qm feature
+git -C "$fixture" commit -qm worker
 git -C "$fixture" checkout -q main
-out=$(cd "$fixture" && sh "$land" merge unit/feature "land feature" --unit feature \
-  --scope area.src --check command:checks/pass.sh)
-printf '%s\n' "$out" | grep -q '^LANDED:' || die "merge landing reports success"
-[ "$(git -C "$fixture" show HEAD:src/b.txt)" = feature ] || die "prospective merge tree was landed"
-[ "$(git -C "$fixture" rev-list --parents -n 1 HEAD | wc -w | tr -d ' ')" = 3 ] || die "coordinated landing preserves the feature parent"
-(cd "$fixture" && sh "$brief" trailer HEAD >/dev/null) || die "landed merge has honest trailers"
-ok "merge landing verifies before creating a two-parent integration commit"
+ground=$(git -C "$fixture" rev-parse HEAD)
+source_digest=$(cd "$fixture" && sh "$brief_support" digest source | sed -n 's/^DIGEST: //p')
+runtime=$(cd "$fixture" && sh "$runtime_support" ensure)
+mkdir -p "$runtime/plans"
+cat >"$runtime/plans/bundle.yml" <<EOF
+version: 1
+id: bundle
+goal: Land parallel source work.
+integration_target: main
+integration_ground: $ground
+domains: [source]
+governing_digest: $source_digest
+units:
+  - id: worker
+    objective: Add source worker output.
+    dependencies: []
+    paths: [src/b.txt]
+    verifies: [command:checks/verify.sh]
+  - id: followup
+    objective: Follow up independently.
+    dependencies: [worker]
+    paths: [ui/followup.txt]
+    verifies: [command:checks/verify.sh]
+EOF
+old=$(git -C "$fixture" rev-parse HEAD)
+if (cd "$fixture" && sh "$land" merge unit/worker "missing lease" --unit worker --scope area.src \
+    --domain source --reviewed constraint:source.layout --reviewed constraint:source.naming \
+    --plan bundle >/dev/null 2>&1); then die "coordinated landing without lease succeeded"; fi
+[ "$(git -C "$fixture" rev-parse HEAD)" = "$old" ] || die "missing lease moved target"
+ok "coordinated landing requires a live lease"
 
-fresh=$(mktemp -d "${TMPDIR:-/tmp}/git-intent-first-land-test.XXXXXX")
-git -C "$fresh" init -qb trunk
-git -C "$fresh" config user.name test
-git -C "$fresh" config user.email test@example.com
-git -C "$fresh" config commit.gpgsign false
-echo first >"$fresh/README.md"
-out=$(cd "$fresh" && sh "$land" direct "first landing" --unit first --scope area.root --paths README.md)
-printf '%s\n' "$out" | grep -q '^LANDED:' || die "first landing reports success"
-[ "$(git -C "$fresh" rev-list --parents -n 1 HEAD | wc -w | tr -d ' ')" = 1 ] || die "first landing created an unexpected parent"
-[ "$(git -C "$fresh" branch --show-current)" = trunk ] || die "unborn current branch was not retained as integration target"
-ok "fresh repositories land atomically without a bootstrap branch"
+(cd "$fixture" && sh "$lease" create worker --scope area.src --paths src/b.txt --domains source --digest "$source_digest" \
+  --branch unit/worker --integration-target main >/dev/null)
+out=$(cd "$fixture" && sh "$land" merge unit/worker "land worker" --unit worker --scope area.src \
+  --domain source --reviewed constraint:source.layout --reviewed constraint:source.naming \
+  --plan bundle)
+printf '%s\n' "$out" | grep -q '^LANDED:' || die "fresh matching lease did not land"
+[ ! -e "$runtime/leases/worker.yml" ] || die "landed lease was not released"
+[ -f "$runtime/plans/bundle.yml" ] || die "incomplete plan was removed"
+ok "matching lease is authenticated, released, and incomplete plan retained"
 
-echo "5 atomic landing checks passed"
+echo "6 landing checks passed"

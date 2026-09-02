@@ -1,8 +1,7 @@
 #!/bin/sh
 # Resolve the two repository-level choices git-intent cannot safely invent:
-# who resolves consequential semantic ambiguity, and which local branch is the
-# integration target. Runtime worker availability and interaction timing are
-# harness facts, not tracked repository policy.
+# how consequential ambiguity is resolved, and which local branch is the
+# integration target. Planning remains an agent/runtime concern.
 
 set -eu
 
@@ -30,7 +29,7 @@ current_source() {
 }
 
 emit() {
-  escalation=$1
+  resolution=$1
   branch=$2
   source=$3
   branch_source=$4
@@ -47,7 +46,7 @@ emit() {
     fi
   fi
 
-  printf 'escalation: %s\n' "$escalation"
+  printf 'resolution: %s\n' "$resolution"
   printf 'integration_branch: %s\n' "$branch"
   printf 'source: %s\n' "$source"
   printf 'integration_branch_resolved: %s\n' "$branch"
@@ -56,7 +55,7 @@ emit() {
 }
 
 if [ ! -e "$config" ]; then
-  emit human "$(current_branch)" default "$(current_source)"
+  emit assisted "$(current_branch)" default "$(current_source)"
   exit 0
 fi
 
@@ -66,20 +65,20 @@ fi
 }
 
 version=$(sed -n 's/^version:[[:space:]]*//p' "$config")
-escalation=$(sed -n 's/^escalation:[[:space:]]*//p' "$config")
+resolution=$(sed -n 's/^resolution:[[:space:]]*//p' "$config")
 integration_branch=$(sed -n 's/^integration_branch:[[:space:]]*//p' "$config")
-unknown=$(awk -F: '/^[a-z_]+:/ && $1 != "version" && $1 != "escalation" && $1 != "integration_branch" { print $1 }' "$config")
+unknown=$(awk -F: '/^[a-z_]+:/ && $1 != "version" && $1 != "resolution" && $1 != "integration_branch" { print $1 }' "$config")
 
 [ "$version" = "1" ] || {
   echo "git-intent: .intent/config.yml must declare version: 1" >&2
   exit 2
 }
 
-[ -n "$escalation" ] || escalation=human
-case "$escalation" in
-  human|agent) ;;
+[ -n "$resolution" ] || resolution=assisted
+case "$resolution" in
+  assisted|auto) ;;
   *)
-    echo "git-intent: .intent/config.yml has invalid escalation '$escalation' (use human or agent)" >&2
+    echo "git-intent: .intent/config.yml has invalid resolution '$resolution' (use assisted or auto)" >&2
     exit 2
     ;;
 esac
@@ -90,7 +89,7 @@ if [ -n "$unknown" ]; then
 fi
 
 if [ -n "$integration_branch" ]; then
-  emit "$escalation" "$integration_branch" .intent/config.yml config
+  emit "$resolution" "$integration_branch" .intent/config.yml config
 else
-  emit "$escalation" "$(current_branch)" .intent/config.yml "$(current_source)"
+  emit "$resolution" "$(current_branch)" .intent/config.yml "$(current_source)"
 fi

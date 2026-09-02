@@ -8,14 +8,17 @@ usage() {
   cat >&2 <<'EOF'
 usage:
   land-support.sh direct <subject> --unit <id>... --scope <scope>...
-                  --paths <path>... [--check <locator>]... [--allow-open]
-                  [--board <id>]
+                  --paths <path>... [--domain <id>]... [--interface <name>]...
+                  [--governance <ref>]... [--reviewed constraint:<id>]...
+                  [--check <locator>]... [--allow-open] [--plan <id>]
   land-support.sh merge <branch> <subject> --unit <id>... --scope <scope>...
-                  [--check <locator>]... [--allow-open] [--board <id>]
+                  [--domain <id>]... [--interface <name>]...
+                  [--governance <ref>]... [--reviewed constraint:<id>]...
+                  [--check <locator>]... [--allow-open] [--plan <id>]
 
 Check locators are executable `command:path` wrappers or supported `test:`
 locators. `--allow-open` states that intent-land has already resolved the
-authority gate for an open or breaking contract transition.
+authority gate for an open or gated governance transition.
 EOF
   exit 2
 }
@@ -37,20 +40,27 @@ root=$(git rev-parse --show-toplevel 2>/dev/null) || {
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 brief_dir="$script_dir/../../intent-brief/scripts"
 coordinate_dir="$script_dir/../../intent-coordinate/scripts"
-audit_dir="$script_dir/../../intent-audit/scripts"
 runtime=$(sh "$coordinate_dir/runtime-support.sh" root) || exit 2
 
 units=""
 scopes=""
 paths=""
 checks=""
-board=""
+domains=""
+interfaces=""
+governance=""
+reviewed=""
+plan=""
 allow_open=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --unit) [ "$#" -ge 2 ] || usage; units="$units $2"; shift 2 ;;
     --scope) [ "$#" -ge 2 ] || usage; scopes="$scopes $2"; shift 2 ;;
-    --board) [ "$#" -ge 2 ] || usage; board=$2; shift 2 ;;
+    --domain) [ "$#" -ge 2 ] || usage; domains="$domains $2"; shift 2 ;;
+    --interface) [ "$#" -ge 2 ] || usage; interfaces="$interfaces $2"; shift 2 ;;
+    --governance) [ "$#" -ge 2 ] || usage; governance="$governance $2"; shift 2 ;;
+    --reviewed) [ "$#" -ge 2 ] || usage; reviewed="$reviewed $2"; shift 2 ;;
+    --plan) [ "$#" -ge 2 ] || usage; plan=$2; shift 2 ;;
     --check) [ "$#" -ge 2 ] || usage; checks="$checks
 $2"; shift 2 ;;
     --allow-open) allow_open=1; shift ;;
@@ -115,7 +125,8 @@ trap cleanup EXIT HUP INT TERM
 message_args=""
 for unit in $units; do message_args="$message_args --unit $unit"; done
 for scope in $scopes; do message_args="$message_args --scope $scope"; done
-[ -z "$board" ] || message_args="$message_args --board $board"
+for domain in $domains; do message_args="$message_args --domain $domain"; done
+[ -z "$plan" ] || message_args="$message_args --plan $plan"
 # Arguments are identifiers validated by the message generator and contain no
 # whitespace by schema. shellcheck disable=SC2086
 sh "$brief_dir/brief-support.sh" message "$subject" $message_args >"$tmp/message"
@@ -158,10 +169,15 @@ fi
 git worktree add --quiet --detach "$verify_dir" "$candidate"
 worktree_added=1
 
+reach_args=""
+for domain in $domains; do reach_args="$reach_args --domain $domain"; done
+for interface in $interfaces; do reach_args="$reach_args --interface $interface"; done
 if [ "$unborn" -eq 1 ]; then
-  reach=$(cd "$verify_dir" && sh "$brief_dir/brief-support.sh" reach --root)
+  # shellcheck disable=SC2086
+  reach=$(cd "$verify_dir" && sh "$brief_dir/brief-support.sh" reach --root $reach_args)
 else
-  reach=$(cd "$verify_dir" && sh "$brief_dir/brief-support.sh" reach "$old")
+  # shellcheck disable=SC2086
+  reach=$(cd "$verify_dir" && sh "$brief_dir/brief-support.sh" reach "$old" $reach_args)
 fi
 printf '%s\n' "$reach"
 verdict=$(printf '%s\n' "$reach" | sed -n 's/^REACH:[[:space:]]*//p')
@@ -170,13 +186,13 @@ case "$verdict" in
   open)
     if printf '%s\n' "$reach" | grep -q '^MOVE:'; then :
     elif [ "$allow_open" -ne 1 ]; then
-      echo "git-intent: open contract boundary requires resolved authority (--allow-open)" >&2
+      echo "git-intent: open governance boundary requires resolved authority (--allow-open)" >&2
       exit 1
     fi
     ;;
   gated)
     [ "$allow_open" -eq 1 ] || {
-      echo "git-intent: breaking contract transition requires resolved authority (--allow-open)" >&2
+      echo "git-intent: gated governance transition requires resolved authority (--allow-open)" >&2
       exit 1
     }
     ;;
@@ -186,19 +202,8 @@ esac
 (cd "$verify_dir" && GIT_INTENT_INTEGRATION_TARGET="$target" GIT_INTENT_ALLOW_UNBORN="$unborn" sh "$brief_dir/validate-state.sh" --landing)
 (cd "$verify_dir" && sh "$brief_dir/brief-support.sh" trailer "$candidate")
 
-runtime=$(sh "$coordinate_dir/runtime-support.sh" ensure) || exit 2
-receipts="$runtime/receipts/$tree"
-mkdir -p "$receipts"
-
 run_locator() {
   locator=$1
-  key=$(printf '%s' "$locator" | cksum | awk '{ print $1 "-" $2 }')
-  receipt="$receipts/$key"
-  if [ -f "$receipt" ]; then
-    echo "CHECK: cached — $locator"
-    return 0
-  fi
-
   echo "CHECK: running — $locator"
   case "$locator" in
     command:*)
@@ -237,13 +242,14 @@ run_locator() {
       return 1
       ;;
   esac
-  printf 'tree: %s\ncheck: %s\n' "$tree" "$locator" >"$receipt"
 }
 
 if [ "$unborn" -eq 1 ]; then
-  verifier_rows=$(cd "$verify_dir" && sh "$brief_dir/brief-support.sh" verifiers --root)
+  # shellcheck disable=SC2086
+  verifier_rows=$(cd "$verify_dir" && sh "$brief_dir/brief-support.sh" verifiers --root $reach_args)
 else
-  verifier_rows=$(cd "$verify_dir" && sh "$brief_dir/brief-support.sh" verifiers "$old")
+  # shellcheck disable=SC2086
+  verifier_rows=$(cd "$verify_dir" && sh "$brief_dir/brief-support.sh" verifiers "$old" $reach_args)
 fi
 printf '%s\n' "$verifier_rows" | sed -n 's/^VERIFY: [^ ]* //p' | while IFS= read -r locator; do
   [ -n "$locator" ] || continue
@@ -256,9 +262,74 @@ printf '%s\n' "$verifier_rows" | sed -n 's/^VERIFY: [^ ]* //p' | while IFS= read
   esac
 done
 
+printf '%s\n' "$verifier_rows" | sed -n 's/^REVIEW: \([^ ]*\) .*/\1/p' | while IFS= read -r constraint; do
+  found=0
+  for accepted in $reviewed; do [ "$accepted" = "$constraint" ] && found=1; done
+  [ "$found" -eq 1 ] || {
+    echo "git-intent: affected semantic $constraint requires --reviewed $constraint after prospective-tree review" >&2
+    exit 1
+  }
+  echo "REVIEW: accepted — $constraint"
+done
+
 printf '%s\n' "$checks" | sed '/^$/d' | while IFS= read -r locator; do
   run_locator "$locator"
 done
+
+# A coordinated landing must be backed by live leases whose combined claims
+# cover the branch, integration target, changed paths, domains, and governance.
+if [ -n "$plan" ]; then
+  plan_file="$runtime/plans/$plan.yml"
+  [ -f "$plan_file" ] || { echo "git-intent: no runtime plan '$plan'" >&2; exit 1; }
+  sh "$coordinate_dir/workboard-support.sh" validate "$plan" >/dev/null || exit 1
+  lease_files=""
+  for unit in $units; do
+    lease_file="$runtime/leases/$unit.yml"
+    [ -f "$lease_file" ] || { echo "git-intent: coordinated unit '$unit' has no live lease" >&2; exit 1; }
+    sh "$coordinate_dir/lease-support.sh" fresh "$unit" >/dev/null || exit 1
+    lease_target=$(sed -n 's/^integration_target:[[:space:]]*//p' "$lease_file" | head -1)
+    [ "$lease_target" = "$target" ] || { echo "git-intent: lease '$unit' targets '$lease_target', not '$target'" >&2; exit 1; }
+    if [ "$mode" = merge ]; then
+      lease_branch=$(sed -n 's/^branch:[[:space:]]*//p' "$lease_file" | head -1)
+      [ "$lease_branch" = "$merge_branch" ] || { echo "git-intent: lease '$unit' belongs to '$lease_branch', not '$merge_branch'" >&2; exit 1; }
+    fi
+    lease_files="$lease_files $lease_file"
+  done
+
+  actual_paths=$(if [ "$unborn" -eq 1 ]; then git -C "$verify_dir" diff-tree --no-commit-id --name-only -r --root HEAD; else git -C "$verify_dir" diff --name-only "$old" HEAD; fi)
+  for changed in $actual_paths; do
+    covered=0
+    for lease_file in $lease_files; do
+      claim_paths=$(sed -n 's/^paths:[[:space:]]*//p' "$lease_file" | head -1 | tr '[],' '   ')
+      for claim in $claim_paths; do
+        [ "$changed" = "$claim" ] && covered=1
+        case "$changed" in "$claim"/*) covered=1 ;; esac
+      done
+    done
+    [ "$covered" -eq 1 ] || { echo "git-intent: coordinated path '$changed' is outside the combined lease claims" >&2; exit 1; }
+  done
+  for requested in $interfaces; do
+    found=0; for lease_file in $lease_files; do
+      values=$(sed -n 's/^interfaces:[[:space:]]*//p' "$lease_file" | head -1 | tr '[],' '   ')
+      for value in $values; do [ "$value" = "$requested" ] && found=1; done
+    done
+    [ "$found" -eq 1 ] || { echo "git-intent: interface '$requested' is absent from the combined lease claims" >&2; exit 1; }
+  done
+  for requested in $domains; do
+    found=0; for lease_file in $lease_files; do
+      values=$(sed -n 's/^domains:[[:space:]]*//p' "$lease_file" | head -1 | tr '[],' '   ')
+      for value in $values; do [ "$value" = "$requested" ] && found=1; done
+    done
+    [ "$found" -eq 1 ] || { echo "git-intent: domain '$requested' is absent from the combined lease context" >&2; exit 1; }
+  done
+  for requested in $governance; do
+    found=0; for lease_file in $lease_files; do
+      values=$(sed -n 's/^governance:[[:space:]]*//p' "$lease_file" | head -1 | tr '[],' '   ')
+      for value in $values; do [ "$value" = "$requested" ] && found=1; done
+    done
+    [ "$found" -eq 1 ] || { echo "git-intent: governance '$requested' is absent from the combined lease claims" >&2; exit 1; }
+  done
+fi
 
 # Compare-and-swap is the atomic boundary: if another landing advanced the
 # target during verification, this fails and the verified candidate remains
@@ -281,15 +352,11 @@ for unit in $units; do
   fi
 done
 
-if [ -n "$board" ] && [ -f "$runtime/boards/$board.yml" ]; then
-  board_state=$(sh "$coordinate_dir/workboard-status.sh" "$board" 2>/dev/null || true)
-  if ! printf '%s\n' "$board_state" | grep -Eq ' (active|waiting|dispatchable) '; then
-    rm -f "$runtime/boards/$board.yml"
+if [ -n "$plan" ] && [ -f "$runtime/plans/$plan.yml" ]; then
+  plan_state=$(sh "$coordinate_dir/workboard-status.sh" "$plan" 2>/dev/null || true)
+  if ! printf '%s\n' "$plan_state" | grep -Eq ' (active|waiting|dispatchable) '; then
+    rm -f "$runtime/plans/$plan.yml"
   fi
 fi
 
 echo "LANDED: $candidate -> $target (prospective tree verified before ref update)"
-recurrence=$(sh "$audit_dir/audit-support.sh" recurrence 2>/dev/null || true)
-if [ -n "$recurrence" ]; then
-  printf '%s\n' "$recurrence" | sed 's/^RECURRENT:/ADOPTION-SUGGESTION:/'
-fi

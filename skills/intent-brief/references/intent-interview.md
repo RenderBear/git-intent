@@ -1,24 +1,22 @@
 # Consequential resolution
 
-Use this protocol only after compatible governing directions have been composed and reversible implementation alternatives exhausted.
+Use this only after compatible constraints have been composed and reversible implementation
+alternatives exhausted.
 
-A consequential ambiguity exists when accepted directions cannot coexist, a critical boundary lacks authority, architecture makes the requested outcome infeasible, or the choice affects security, permissions, money, production data, irreversibility, compatibility, or unauthorized external effects.
-
-`escalation` selects the resolver:
-
-- `human` — present the packet and wait;
-- `agent` — resolve only within already accepted intent.
-
-Hard gates remain human or exact-request decisions in either mode when the choice would weaken a user-defined contract, prefer one incompatible authoritative goal, or authorize a high-consequence/external effect.
+`resolution: assisted` sends one bounded question to the human. `resolution: auto` lets the agent
+answer within the current request and accepted governance. Neither mode authorizes weakening an
+explicit user promise, choosing between incompatible user goals, or performing unauthorized
+security, money, production-data, irreversible, or external effects.
 
 ```text
-DECISION REQUIRED
-CONFLICT       <property A> vs <property B>
+RESOLUTION REQUIRED
+CONFLICT       <accepted property A> vs <requested or accepted property B>
 AUTHORITY      <source A> · <source B>
-CONSEQUENCE    <what becomes irreversible or underdelivered>
-OPTIONS        A ... · B ...
-RECOMMEND      <one recommendation and consequence>
-QUESTION       <one concrete decision>
+CONSEQUENCE    <compatibility, domain shape, or side effect>
+OPTIONS        <concrete choices>
+RECOMMEND      <one choice and why>
+QUESTION       <one answer needed>
 ```
 
-After resolution, run decision admission through `intent-record`. Capture only a durable, non-testable, authority-backed rule. Otherwise report why it was not captured. Never persist an acknowledgement merely to prove the resolution occurred.
+After resolution, use `intent-record` only when the answer creates durable binding meaning. Put
+rationale in its normal ADR or architecture material; do not create an acknowledgement record.

@@ -1,13 +1,12 @@
 #!/bin/sh
-# Verify workboard status is derived from repository facts, never stored, and
-# that the pinned set (landed or leased units) is derivable for redraw checks.
+# Verify parallel-plan validation and status derivation.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 status="$root/skills/intent-coordinate/scripts/workboard-status.sh"
-board_support="$root/skills/intent-coordinate/scripts/workboard-support.sh"
-support="$root/skills/intent-brief/scripts/brief-support.sh"
-fixture=$(mktemp -d "${TMPDIR:-/tmp}/git-intent-status-test.XXXXXX")
+plan_support="$root/skills/intent-coordinate/scripts/workboard-support.sh"
+brief="$root/skills/intent-brief/scripts/brief-support.sh"
+fixture=$(mktemp -d "${TMPDIR:-/tmp}/git-intent-plan-test.XXXXXX")
 cleanup() { rm -rf "$fixture"; }
 trap cleanup EXIT HUP INT TERM
 
@@ -16,117 +15,138 @@ git -C "$fixture" config user.name test
 git -C "$fixture" config user.email test@example.com
 git -C "$fixture" config commit.gpgsign false
 touch "$fixture/seed"
-git -C "$fixture" add -A
+git -C "$fixture" add seed
 git -C "$fixture" commit -qm seed
+ground=$(git -C "$fixture" rev-parse HEAD)
+empty_digest=$(cd "$fixture" && sh "$brief" digest | sed -n 's/^DIGEST: //p')
 
 ok() { echo "ok - $1"; }
 die() { echo "not ok - $1"; exit 1; }
 
 out=$(cd "$fixture" && sh "$status")
-printf '%s\n' "$out" | grep -q 'no workboards' || die "empty workboard store reports cleanly"
-ok "empty workboard store reports cleanly"
+printf '%s\n' "$out" | grep -q '^no plans$' || die "empty runtime does not report no plans"
+ok "empty plan store reports cleanly"
 
-mkdir -p "$fixture/intent-work/boards" "$fixture/intent-work/leases"
-cat >"$fixture/intent-work/boards/demo.yml" <<'EOF'
+runtime="$fixture/.intent/runtime"
+mkdir -p "$runtime/plans" "$runtime/leases"
+cat >"$runtime/plans/demo.yml" <<EOF
 version: 1
 id: demo
-goal: Demo plan.
+goal: Establish and consume a boundary.
 integration_target: main
+integration_ground: $ground
+domains: []
+governing_digest: $empty_digest
 units:
-  - id: contracts
-    objective: Stabilize shared assertions.
+  - id: protocol
+    objective: Establish the protocol.
     dependencies: []
-    surfaces: [packages/contracts]
-    verifies: [test:tests/validate.sh]
+    paths: [.intent/CONTRACTS.yml]
+    governance: [contract:demo.boundary]
+    provides: [contract:demo.boundary]
+    verifies: [command:checks/protocol]
   - id: api
-    objective: Implement the workflow.
-    dependencies: [contracts]
-    relies_on: [demo.boundary]
-    surfaces: [services/api]
+    objective: Consume the protocol.
+    dependencies: [protocol]
+    paths: [services/api]
+    relies_on: [contract:demo.boundary]
+    verifies: [command:checks/api]
   - id: web
-    objective: Implement the frontend.
-    dependencies: [contracts, api]
-    surfaces: [apps/web]
+    objective: Update an independent client.
+    dependencies: [protocol]
+    paths: [apps/web]
+    relies_on: [contract:demo.boundary]
+    verifies: [command:checks/web]
 EOF
 
-out=$(cd "$fixture" && sh "$board_support" validate demo)
-printf '%s\n' "$out" | grep -q '^WORKBOARD: valid' || die "valid board passes mechanical topology checks"
-ok "workboard dependencies and unordered claims validate"
+out=$(cd "$fixture" && sh "$plan_support" validate demo)
+printf '%s\n' "$out" | grep -q '^PLAN: valid' || die "valid plan failed"
+ok "DAG, verification, reliance order, and disjoint claims validate"
 
-cat >"$fixture/intent-work/boards/bad.yml" <<'EOF'
+cp "$runtime/plans/demo.yml" "$runtime/plans/demo.good"
+sed 's/^governing_digest:.*/governing_digest: stale/' "$runtime/plans/demo.good" >"$runtime/plans/demo.yml"
+if (cd "$fixture" && sh "$plan_support" validate demo >/dev/null 2>&1); then die "stale governing digest was accepted"; fi
+mv "$runtime/plans/demo.good" "$runtime/plans/demo.yml"
+ok "plan lifetime is guarded by the selected domain-governance digest"
+
+cat >"$runtime/plans/bad.yml" <<EOF
 version: 1
 id: bad
-goal: Overlapping workers.
+goal: Invalid parallel overlap.
 integration_target: main
+integration_ground: $ground
+domains: []
+governing_digest: $empty_digest
 units:
   - id: one
     objective: First.
     dependencies: []
-    surfaces: [shared]
+    paths: [shared]
+    governance: [constraint:shared]
+    verifies: [test:one]
   - id: two
     objective: Second.
     dependencies: []
-    surfaces: [shared/file]
+    paths: [other]
+    governance: [constraint:shared]
+    verifies: [test:two]
 EOF
-if (cd "$fixture" && sh "$board_support" validate bad >/dev/null 2>&1); then
-  die "unordered overlapping claims were accepted"
-fi
-rm -f "$fixture/intent-work/boards/bad.yml"
-ok "unordered overlapping claims are rejected"
+if (cd "$fixture" && sh "$plan_support" validate bad >/dev/null 2>&1); then die "unordered governance overlap was accepted"; fi
+ok "unordered governance claims collide even when paths differ"
+
+cat >"$runtime/plans/bad.yml" <<EOF
+version: 1
+id: bad
+goal: Invalid missing dependency.
+integration_target: main
+integration_ground: $ground
+domains: []
+governing_digest: $empty_digest
+units:
+  - id: setter
+    objective: Set contract.
+    dependencies: []
+    governance: [contract:x]
+    provides: [contract:x]
+    verifies: [test:setter]
+  - id: consumer
+    objective: Consume contract.
+    dependencies: []
+    paths: [consumer]
+    relies_on: [contract:x]
+    verifies: [test:consumer]
+EOF
+if (cd "$fixture" && sh "$plan_support" validate bad >/dev/null 2>&1); then die "unordered provider and consumer were accepted"; fi
+ok "provider-before-consumer order is mechanical"
+rm -f "$runtime/plans/bad.yml"
 
 out=$(cd "$fixture" && sh "$status" demo)
-printf '%s\n' "$out" | grep -Eq '^contracts +dispatchable' || die "root unit with no deps is dispatchable"
-printf '%s\n' "$out" | grep -Eq '^api +waiting +contracts' || die "dependent unit waits on unlanded deps"
-ok "derived states before any landing are correct"
+printf '%s\n' "$out" | grep -Eq '^protocol +dispatchable' || die "root unit is not dispatchable"
+printf '%s\n' "$out" | grep -Eq '^api +waiting' || die "consumer is not waiting"
+ok "unit state derives from dependencies"
 
-out=$(cd "$fixture" && sh "$status" demo --pinned)
-[ -z "$out" ] || die "nothing landed or leased means nothing pinned"
-ok "an undispatched workboard is fully redrawable — nothing pinned"
+git -C "$fixture" commit --allow-empty -qm "land protocol
 
-git -C "$fixture" checkout -qb unit/contracts
-echo x >"$fixture/work"
-git -C "$fixture" add work
-git -C "$fixture" commit -qm "contracts unit"
-git -C "$fixture" checkout -q main
-git -C "$fixture" merge -q --no-ff unit/contracts -m "land contracts
-
-Intent-Unit: contracts
-Intent-Scope: demo.contracts"
-
+Intent-Unit: protocol
+Intent-Scope: area.root"
 out=$(cd "$fixture" && sh "$status" demo)
-printf '%s\n' "$out" | grep -Eq '^contracts +landed' || die "landed unit derived from first-parent trailer"
-printf '%s\n' "$out" | grep -Eq '^api +dispatchable' || die "unit unlocks when deps land"
-printf '%s\n' "$out" | grep -Eq '^web +waiting' || die "transitively blocked unit stays waiting"
-ok "landing a unit unlocks dependents by ancestry alone"
+printf '%s\n' "$out" | grep -Eq '^protocol +landed' || die "trailer did not derive landed state"
+printf '%s\n' "$out" | grep -Eq '^api +dispatchable' || die "dependency landing did not unlock consumer"
+ok "first-parent trailers unlock dependents"
 
-cat >"$fixture/intent-work/leases/api.yml" <<'EOF'
+cat >"$runtime/leases/api.yml" <<'EOF'
 version: 1
 unit: api
 EOF
-out=$(cd "$fixture" && sh "$status" demo)
-printf '%s\n' "$out" | grep -Eq '^api +active' || die "live lease marks unit active"
 out=$(cd "$fixture" && sh "$status" demo --pinned)
-printf '%s\n' "$out" | grep -q '^PINNED: contracts (landed)$' || die "landed unit is pinned"
-printf '%s\n' "$out" | grep -q '^PINNED: api (leased)$' || die "leased unit is pinned"
-printf '%s\n' "$out" | grep -q 'web' && die "the undispatched frontier stays unpinned"
-ok "pinned set is landed plus leased; the frontier stays redrawable"
-rm -f "$fixture/intent-work/leases/api.yml"
+printf '%s\n' "$out" | grep -q '^PINNED: protocol (landed)$' || die "landed unit is not pinned"
+printf '%s\n' "$out" | grep -q '^PINNED: api (leased)$' || die "leased unit is not pinned"
+ok "pinned set is landed plus leased"
 
-msg=$(cd "$fixture" && sh "$support" message "land api and web sequentially" \
-  --unit api --unit web --scope demo.api --scope demo.web --board demo)
-git -C "$fixture" checkout -qb unit/seq
-echo y >"$fixture/work2"
-git -C "$fixture" add work2
-git -C "$fixture" commit -qm "api and web units"
-git -C "$fixture" checkout -q main
-git -C "$fixture" merge -q --no-ff unit/seq -m "$msg"
-out=$(cd "$fixture" && sh "$status" demo)
-printf '%s\n' "$out" | grep -Eq '^api +landed' || die "sequential-run merge lands api by its trailer"
-printf '%s\n' "$out" | grep -Eq '^web +landed' || die "sequential-run merge lands web by its trailer"
-ok "one sequential-run merge with per-unit trailers lands every contained unit"
+msg=$(cd "$fixture" && sh "$brief" message "land clients" --unit api --unit web \
+  --scope area.services --scope area.apps --plan demo)
+printf '%s\n' "$msg" | grep -q '^Intent-Plan: demo$' || die "message omits plan trailer"
+printf '%s\n' "$msg" | grep -q '^Intent-Unit: web$' || die "message omits bundled unit"
+ok "one convergence message can contain several bundled units"
 
-rm -rf "$fixture/intent-work"
-git -C "$fixture" log --oneline >/dev/null || die "removing runtime state cannot affect repository content"
-ok "removing workboards leaves repository content untouched"
-
-echo "9 workboard checks passed"
+echo "8 plan checks passed"

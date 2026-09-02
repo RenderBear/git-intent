@@ -1,59 +1,28 @@
 ---
 name: intent-land
-description: Verify the exact prospective integration tree and atomically land it with honest scope metadata. The integration ref never moves on a failed preflight.
+description: Construct, review, verify, and atomically land the exact prospective Git tree while authenticating coordinated leases and preserving accepted contracts and constraints.
 ---
 
 # intent-land
 
-Landing is one convergence operation. It owns commits and local integration; it does not invent governance.
+Landing is one convergence operation. It does not invent governance.
 
-## Resolve authority
+Recompute reach against the exact candidate. Run all emitted contract and constraint verifiers.
+Semantically review every affected constraint against the candidate and pass its
+`--reviewed constraint:<id>` acknowledgement. Under `resolution: assisted`, ask only when the
+candidate conflicts with or changes accepted meaning; under `auto`, resolve within request
+authority. Removing or rewriting accepted governance remains gated.
 
-Recompute reach against the actual candidate diff.
+Use `scripts/land-support.sh direct|merge`. Pass every unit, derived scope, selected semantic
+domain, explicitly claimed governance item, repository check, and runtime plan id. A coordinated
+landing must have matching fresh leases; the script validates their branch, target, and combined
+path/domain/governance coverage.
 
-- `local` — run repository checks and land.
-- `bounded` — run every affected contract verifier; green lands.
-- `open` — run all verifiers and resolve the semantic transition.
-- `gated` — require accepted authority for the breaking contract transition.
+The script constructs a dangling candidate, validates intent and trailers in a detached worktree,
+runs checks against that exact tree, and compare-and-swaps the integration ref. Conflict, failed
+verification, missing semantic review, stale or mismatched lease, changed target, or unresolved
+governance leaves the ref unchanged.
 
-With `escalation: human`, a consequential unresolved transition goes to the human. With `escalation: agent`, the agent may resolve it only within already accepted intent. Weakening user-defined contracts, incompatible authoritative goals, security, money, production data, irreversibility, and unauthorized external effects remain hard gates.
-
-Pass `--allow-open` to the landing script only after that authority has been resolved. `intent-record` captures a resolution only when it is durable; it does not decide who resolves it.
-
-## Atomic landing
-
-Use `scripts/land-support.sh`:
-
-```text
-land-support.sh direct <subject>
-  --unit <id>... --scope <scope>...
-  --paths <path>...
-  [--check command:<executable>]...
-  [--allow-open]
-
-land-support.sh merge <branch> <subject>
-  --unit <id>... --scope <scope>...
-  [--board <id>]
-  [--check command:<executable>]...
-  [--allow-open]
-```
-
-The script:
-
-1. captures the current integration head;
-2. constructs a candidate tree and commit without moving the target;
-3. validates intent state and trailer containment against that commit;
-4. executes affected contract verifiers and repository checks in a detached worktree of the exact candidate;
-5. caches successful receipts by tree and check identity;
-6. compare-and-swaps the integration ref;
-7. updates the integration worktree and releases completed leases.
-
-A failed verifier, conflict, invalid claim, stale target, or unresolved gate leaves the integration ref unchanged.
-
-Run landing from the integration worktree. A configured `integration_branch` must exist unless it is the current unborn branch before the root landing. Without one, the branch current at intake is the target; coordination carries that captured target into every lease.
-
-## Boundaries
-
-Local Git landing is authorized by an implementation request. Push, deploy, publish, destructive cleanup, and other external effects require explicit request authority.
-
-After success, report the target, commit, units, scopes, checks, and any remaining coordination. Recurrent unrouted areas may be suggested for later adoption, but adoption never reopens the completed landing.
+Use [references/conflict-resolution.md](references/conflict-resolution.md) for actual Git conflicts.
+Local landing follows from an implementation request. Push, deployment, publication, destructive
+cleanup, and other external effects require explicit request authority.

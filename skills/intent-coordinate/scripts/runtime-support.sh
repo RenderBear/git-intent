@@ -1,7 +1,7 @@
 #!/bin/sh
-# Locate and maintain the visible, ignored runtime workspace shared by every
-# linked worktree. Runtime state affects coordination and cache reuse only;
-# deleting it cannot change repository meaning or landed Git history.
+# Locate and maintain the ignored planning workspace shared by every linked
+# worktree. It contains only active plans and leases. Deleting it cannot change
+# repository meaning or landed Git history, but can discard live coordination.
 
 set -u
 
@@ -9,15 +9,14 @@ usage() {
   cat >&2 <<'EOF'
 usage:
   runtime-support.sh root
-      Print the shared <primary-worktree>/intent-work path.
+      Print the shared <primary-worktree>/.intent/runtime path.
   runtime-support.sh ensure
       Create the runtime workspace and its self-ignore marker, then print it.
   runtime-support.sh status
-      Show workboards, lease lifecycle, and disposable cache counts.
+      Show plans and lease lifecycle.
   runtime-support.sh clean [--apply]
-      Report completed boards, dead or quiescent leases, and disposable
-      observation/receipt caches. --apply removes only those items; live
-      leases and incomplete boards remain.
+      Report completed plans and dead or quiescent leases. --apply removes
+      only those items; live leases and incomplete plans remain.
 EOF
   exit 2
 }
@@ -31,7 +30,7 @@ repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
 primary_root=$(git worktree list --porcelain 2>/dev/null |
   awk '/^worktree / { sub(/^worktree /, ""); print; exit }')
 [ -n "$primary_root" ] || primary_root=$repo_root
-runtime_root="$primary_root/intent-work"
+runtime_root="$primary_root/.intent/runtime"
 
 [ "$#" -ge 1 ] || usage
 cmd=$1
@@ -58,15 +57,15 @@ case "$cmd" in
       exit 0
     fi
 
-    boards=0
-    for file in "$runtime_root"/boards/*.yml; do
+    plans=0
+    for file in "$runtime_root"/plans/*.yml; do
       [ -f "$file" ] || continue
-      boards=$((boards + 1))
+      plans=$((plans + 1))
       id=$(basename "$file" .yml)
-      printf 'BOARD: %s\n' "$id"
+      printf 'PLAN: %s\n' "$id"
       sh "$script_dir/workboard-status.sh" "$id" 2>&1 | sed 's/^/  /'
     done
-    [ "$boards" -gt 0 ] || echo "BOARDS: none"
+    [ "$plans" -gt 0 ] || echo "PLANS: none"
 
     sh "$script_dir/lease-support.sh" list
     for file in "$runtime_root"/leases/*.yml; do
@@ -74,13 +73,6 @@ case "$cmd" in
       unit=$(sed -n 's/^unit:[[:space:]]*//p' "$file" | head -1)
       [ -n "$unit" ] || continue
       sh "$script_dir/lease-support.sh" fresh "$unit" 2>&1 || true
-    done
-    for cache in observations receipts; do
-      count=0
-      if [ -d "$runtime_root/$cache" ]; then
-        count=$(find "$runtime_root/$cache" -type f 2>/dev/null | wc -l | tr -d ' ')
-      fi
-      printf 'CACHE: %s %s file(s) — disposable\n' "$cache" "$count"
     done
     ;;
   clean)
@@ -98,7 +90,7 @@ case "$cmd" in
       sh "$script_dir/lease-support.sh" reap
     fi
 
-    for file in "$runtime_root"/boards/*.yml; do
+    for file in "$runtime_root"/plans/*.yml; do
       [ -f "$file" ] || continue
       id=$(basename "$file" .yml)
       if state=$(sh "$script_dir/workboard-status.sh" "$id" 2>/dev/null) && printf '%s\n' "$state" | awk '
@@ -108,22 +100,10 @@ case "$cmd" in
       '; then
         if [ "$apply" -eq 1 ]; then
           rm -f "$file"
-          printf 'CLEANED: completed board %s\n' "$id"
+          printf 'CLEANED: completed plan %s\n' "$id"
         else
-          printf 'CLEANABLE: completed board %s\n' "$id"
+          printf 'CLEANABLE: completed plan %s\n' "$id"
         fi
-      fi
-    done
-
-    for cache in observations receipts; do
-      [ -d "$runtime_root/$cache" ] || continue
-      count=$(find "$runtime_root/$cache" -type f 2>/dev/null | wc -l | tr -d ' ')
-      [ "$count" -gt 0 ] || continue
-      if [ "$apply" -eq 1 ]; then
-        find "$runtime_root/$cache" -type f -delete
-        printf 'CLEANED: %s %s cache file(s)\n' "$cache" "$count"
-      else
-        printf 'CLEANABLE: %s %s cache file(s)\n' "$cache" "$count"
       fi
     done
 

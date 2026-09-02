@@ -16,7 +16,7 @@ git -C "$fixture" add f
 git -C "$fixture" commit -qm seed
 
 default=$(cd "$fixture" && sh "$resolver")
-[ "$default" = "escalation: human
+[ "$default" = "resolution: assisted
 integration_branch: trunk
 source: default
 integration_branch_resolved: trunk
@@ -32,12 +32,12 @@ printf '%s\n' "$unborn_out" | grep -q '^integration_branch_unborn: true$'
 mkdir -p "$fixture/.intent"
 cat >"$fixture/.intent/config.yml" <<EOF
 version: 1
-escalation: agent
+resolution: auto
 integration_branch: trunk
 EOF
 
 explicit=$(cd "$fixture" && sh "$resolver")
-[ "$explicit" = "escalation: agent
+[ "$explicit" = "resolution: auto
 integration_branch: trunk
 source: .intent/config.yml
 integration_branch_resolved: trunk
@@ -47,7 +47,7 @@ cat >"$fixture/.intent/config.yml" <<EOF
 version: 1
 EOF
 omitted=$(cd "$fixture" && sh "$resolver")
-[ "$omitted" = "escalation: human
+[ "$omitted" = "resolution: assisted
 integration_branch: trunk
 source: .intent/config.yml
 integration_branch_resolved: trunk
@@ -55,10 +55,10 @@ branch_source: current" ]
 
 cat >"$fixture/.intent/config.yml" <<EOF
 version: 1
-escalation: deferred
+resolution: deferred
 EOF
 if (cd "$fixture" && sh "$resolver" >/dev/null 2>&1); then
-  echo "not ok - timing-oriented escalation value was accepted"
+  echo "not ok - invalid resolution value was accepted"
   exit 1
 fi
 
