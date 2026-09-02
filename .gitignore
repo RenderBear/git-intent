@@ -1,0 +1,26 @@
+# Packaged skill bundles (build artifacts)
+*.skill
+dist/
+
+# Local agent state — installs are symlinks, not repo content
+.claude/
+.cursor/
+.codex/
+!AGENTS.md
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# NOTE: .intent/ is deliberately NOT ignored: routes, contracts, decisions,
+# proposals, exceptions, and cold history are reviewed state.
+
+# Visible local runtime shared by linked worktrees. Its contents are
+# inspectable and disposable but never repository meaning.
+intent-work/
