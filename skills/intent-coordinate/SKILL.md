@@ -1,6 +1,6 @@
 ---
 name: intent-coordinate
-description: Build and operate the ignored runtime plan and leases for genuinely parallel, independently owned, or handoff-sensitive repository work. Do not use for a single direct unit.
+description: Build and operate the ignored runtime plan and leases for genuinely parallel, independently owned, or handoff-sensitive repository work. Do not use for a single uncoordinated unit.
 ---
 
 # intent-coordinate
@@ -48,7 +48,7 @@ creates a collision.
 
 ## Dispatch
 
-Create branches and linked worktrees just in time. Mint one lease per dispatched unit with its
+Create generated `intent/work/<uuid>` branches and linked worktrees just in time. Mint one lease per dispatched unit with its
 paths, interfaces, governance, domains, governing digest, branch, and captured target. Give the
 worker only that unit's objective, dependencies, relevant governing rows, and checks.
 

@@ -37,5 +37,11 @@ ADRs hold rationale. There is no separate decision record: a binding consequence
 contract, or constraint; a nonbinding durable fact becomes an observation. Critical material is
 referenced on the governing record rather than configured as a global documentation folder.
 
+Prefer amending the record that already owns a responsibility or promise. Create a new record only
+when the durable meaning cannot be expressed coherently by an existing one. Record operational
+meaning rather than incidental technology: for example, authoritative durable state, restart
+survival, transactionality, recovery, or migration compatibility rather than merely "uses
+PostgreSQL."
+
 For incompatible concurrent governance edits, read
 [references/reconciliation.md](references/reconciliation.md).

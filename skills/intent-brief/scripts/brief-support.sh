@@ -114,6 +114,33 @@ derived_ids_for_path() {
   esac
 }
 
+# Enumerate mechanical scopes already present in a committed tree without
+# consulting semantic governance or the current checkout. Package scopes come
+# from package-root marker paths; area scopes come from repository topology.
+scopes_for_tree() {
+  ref=$1
+  git ls-tree -r --name-only "$ref" -- 2>/dev/null | while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    case "$p" in .intent|.intent/*) continue ;; esac
+    case "$p" in
+      */*)
+        top=${p%%/*}
+        if [ "${top#.}" != "$top" ]; then printf 'area.root\n'
+        else printf 'area.%s\n' "$(slug "$top")"
+        fi
+        name=${p##*/}
+        case "$name" in
+          package.json|pyproject.toml|Cargo.toml|go.mod)
+            dir=${p%/*}
+            printf 'pkg.%s\n' "$(slug "${dir##*/}")"
+            ;;
+        esac
+        ;;
+      *) printf 'area.root\n' ;;
+    esac
+  done | sort -u
+}
+
 do_map() {
   git ls-files -- 2>/dev/null | awk -F/ '
     $1==".intent" {next}
@@ -267,9 +294,21 @@ with_inputs() {
     return
   fi
 
-  scopes="$tmp/scopes"; : >"$scopes"
+  scopes="$tmp/scopes"; base_scopes="$tmp/base-scopes"; : >"$scopes"; : >"$base_scopes"
   while IFS= read -r path; do derived_ids_for_path "$path"; done <"$paths" | sort -u >"$scopes"
   while IFS= read -r scope; do [ -z "$scope" ] || printf 'TOPOLOGY: %s\n' "$scope"; done <"$scopes"
+  comparison_base=$base
+  if [ -z "$comparison_base" ]; then comparison_base=$(git rev-parse -q --verify HEAD 2>/dev/null || true); fi
+  if [ -n "$comparison_base" ]; then
+    scopes_for_tree "$comparison_base" >"$base_scopes"
+    while IFS= read -r scope; do
+      [ -n "$scope" ] || continue
+      # Canonical test directories attach to code boundaries and are not new
+      # semantic topology by themselves.
+      case "$scope" in area.tests|area.test|area.spec|area.__tests__) continue ;; esac
+      grep -qxF "$scope" "$base_scopes" || printf 'TOPOLOGY-NEW: %s\n' "$scope"
+    done <"$scopes"
+  fi
   while IFS='|' read -r kind id level verifies assertion; do
     printf 'AFFECTED: %s:%s (%s)\n' "$kind" "$id" "$level"
     [ "$kind" != constraint ] || printf 'REVIEW: constraint:%s %s\n' "$id" "$assertion"

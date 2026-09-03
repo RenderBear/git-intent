@@ -4,7 +4,12 @@ git-intent gives coding agents a persistent, reviewable understanding of archite
 along with local coordination and safe Git convergence. It can be adopted incrementally; a
 repository does not need an upfront inventory or complete architecture model.
 
-![Domains hold responsibility, contracts bind their relied-on seams, and constraints preserve architectural shape.](.github/assets/domains-and-contracts.svg)
+Work isolation and governance adoption are separate. Every repository mutation happens on a
+generated work branch, while durable governance is added only when future work must preserve a
+responsibility, relied-on promise, authoritative-state choice, operational behavior, or architectural
+restriction. A large internal refactor may need no record; a one-line compatibility change may.
+
+![Durable governance and temporary planning remain separate, then converge through prospective landing into Git.](.github/assets/domains-and-contracts.svg)
 
 Domains, contracts, and constraints retain the small amount of architectural meaning agents must
 not lose. The complete model is documented in [SPEC.md](SPEC.md).

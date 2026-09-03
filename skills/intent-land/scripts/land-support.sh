@@ -10,15 +10,21 @@ usage:
   land-support.sh direct <subject> --unit <id>... --scope <scope>...
                   --paths <path>... [--domain <id>]... [--interface <name>]...
                   [--governance <ref>]... [--reviewed constraint:<id>]...
+                  --boundary-review <no-record|audit:id|recorded>
                   [--check <locator>]... [--allow-open] [--plan <id>]
   land-support.sh merge <branch> <subject> --unit <id>... --scope <scope>...
                   [--domain <id>]... [--interface <name>]...
                   [--governance <ref>]... [--reviewed constraint:<id>]...
+                  --boundary-review <no-record|audit:id|recorded>
                   [--check <locator>]... [--allow-open] [--plan <id>]
 
 Check locators are executable `command:path` wrappers or supported `test:`
 locators. `--allow-open` states that intent-land has already resolved the
-authority gate for an open or gated governance transition.
+authority gate for an open or gated governance transition. `no-record` states
+that the durable-meaning review found no new governance to adopt. `audit:id`
+names a fresh scoped audit with only no-action or observation findings.
+`recorded` requires the owning domain, contract, or constraint references via
+`--governance`.
 EOF
   exit 2
 }
@@ -40,6 +46,7 @@ root=$(git rev-parse --show-toplevel 2>/dev/null) || {
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 brief_dir="$script_dir/../../intent-brief/scripts"
 coordinate_dir="$script_dir/../../intent-coordinate/scripts"
+audit_dir="$script_dir/../../intent-audit/scripts"
 runtime=$(sh "$coordinate_dir/runtime-support.sh" root) || exit 2
 
 units=""
@@ -50,6 +57,7 @@ domains=""
 interfaces=""
 governance=""
 reviewed=""
+boundary_review=""
 plan=""
 allow_open=0
 while [ "$#" -gt 0 ]; do
@@ -60,6 +68,12 @@ while [ "$#" -gt 0 ]; do
     --interface) [ "$#" -ge 2 ] || usage; interfaces="$interfaces $2"; shift 2 ;;
     --governance) [ "$#" -ge 2 ] || usage; governance="$governance $2"; shift 2 ;;
     --reviewed) [ "$#" -ge 2 ] || usage; reviewed="$reviewed $2"; shift 2 ;;
+    --boundary-review)
+      [ "$#" -ge 2 ] || usage
+      [ -z "$boundary_review" ] || { echo "git-intent: pass exactly one --boundary-review" >&2; exit 2; }
+      boundary_review=$2
+      shift 2
+      ;;
     --plan) [ "$#" -ge 2 ] || usage; plan=$2; shift 2 ;;
     --check) [ "$#" -ge 2 ] || usage; checks="$checks
 $2"; shift 2 ;;
@@ -79,6 +93,19 @@ done
 [ -n "$units" ] || { echo "git-intent: landing requires at least one unit id" >&2; exit 2; }
 [ -n "$scopes" ] || { echo "git-intent: landing requires at least one scope" >&2; exit 2; }
 [ "$mode" != direct ] || [ -n "$paths" ] || { echo "git-intent: direct landing requires --paths" >&2; exit 2; }
+[ -n "$boundary_review" ] || { echo "git-intent: landing requires exactly one --boundary-review disposition" >&2; exit 2; }
+case "$boundary_review" in
+  no-record|recorded) ;;
+  audit:*)
+    audit_id=${boundary_review#audit:}
+    case "$audit_id" in ''|*[!a-zA-Z0-9._-]*) echo "git-intent: invalid boundary audit id '$audit_id'" >&2; exit 2 ;; esac
+    ;;
+  *) echo "git-intent: invalid --boundary-review '$boundary_review'" >&2; exit 2 ;;
+esac
+[ "$boundary_review" != recorded ] || [ -n "$governance" ] || {
+  echo "git-intent: --boundary-review recorded requires at least one --governance reference" >&2
+  exit 2
+}
 
 target=$(sh "$brief_dir/resolve-config.sh" | sed -n 's/^integration_branch_resolved:[[:space:]]*//p')
 [ -n "$target" ] || { echo "git-intent: no integration branch resolved" >&2; exit 2; }
@@ -99,6 +126,10 @@ if [ -z "$old" ]; then
 fi
 [ "$mode" != merge ] || [ "$unborn" -eq 0 ] || {
   echo "git-intent: an unborn integration branch requires a direct first landing" >&2
+  exit 2
+}
+[ "$mode" != direct ] || [ "$unborn" -eq 1 ] || {
+  echo "git-intent: direct landing is reserved for the first commit on an unborn integration branch; use a work branch and merge" >&2
   exit 2
 }
 
@@ -130,6 +161,8 @@ for domain in $domains; do message_args="$message_args --domain $domain"; done
 # Arguments are identifiers validated by the message generator and contain no
 # whitespace by schema. shellcheck disable=SC2086
 sh "$brief_dir/brief-support.sh" message "$subject" $message_args >"$tmp/message"
+printf 'Intent-Boundary: %s\n' "$boundary_review" >>"$tmp/message"
+for ref in $governance; do printf 'Intent-Governance: %s\n' "$ref" >>"$tmp/message"; done
 
 if [ "$mode" = direct ]; then
   index="$tmp/index"
@@ -184,8 +217,7 @@ verdict=$(printf '%s\n' "$reach" | sed -n 's/^REACH:[[:space:]]*//p')
 case "$verdict" in
   local|bounded) ;;
   open)
-    if printf '%s\n' "$reach" | grep -q '^MOVE:'; then :
-    elif [ "$allow_open" -ne 1 ]; then
+    if [ "$allow_open" -ne 1 ]; then
       echo "git-intent: open governance boundary requires resolved authority (--allow-open)" >&2
       exit 1
     fi
@@ -201,6 +233,68 @@ esac
 
 (cd "$verify_dir" && GIT_INTENT_INTEGRATION_TARGET="$target" GIT_INTENT_ALLOW_UNBORN="$unborn" sh "$brief_dir/validate-state.sh" --landing)
 (cd "$verify_dir" && sh "$brief_dir/brief-support.sh" trailer "$candidate")
+
+governance_exists() {
+  ref=$1
+  kind=${ref%%:*}
+  id=${ref#*:}
+  [ "$id" != "$ref" ] && [ -n "$id" ] || return 1
+  case "$kind" in
+    domain) file=.intent/DOMAINS.yml ;;
+    contract) file=.intent/CONTRACTS.yml ;;
+    constraint) file=.intent/CONSTRAINTS.yml ;;
+    *) return 1 ;;
+  esac
+  [ -f "$verify_dir/$file" ] &&
+    sed -n 's/^  - id:[[:space:]]*//p' "$verify_dir/$file" |
+    sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//' |
+    grep -qxF "$id"
+}
+
+case "$boundary_review" in
+  no-record)
+    if printf '%s\n' "$reach" | grep -q '^GOVERNANCE:'; then
+      echo "git-intent: governance changed; use --boundary-review recorded with --governance references" >&2
+      exit 1
+    fi
+    echo "BOUNDARY-REVIEW: no-record"
+    ;;
+  audit:*)
+    if printf '%s\n' "$reach" | grep -q '^GOVERNANCE:'; then
+      echo "git-intent: governance changed; use --boundary-review recorded with --governance references" >&2
+      exit 1
+    fi
+    audit_id=${boundary_review#audit:}
+    audit_file="$verify_dir/.intent/audits/$audit_id.yml"
+    [ -f "$audit_file" ] || { echo "git-intent: boundary audit '$audit_id' is absent from the candidate" >&2; exit 1; }
+    audit_mode=$(sed -n 's/^mode:[[:space:]]*//p' "$audit_file" | head -1 |
+      sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//')
+    [ "$audit_mode" = scope ] || {
+      echo "git-intent: boundary review requires a scoped audit" >&2
+      exit 1
+    }
+    if sed -n 's/^    disposition:[[:space:]]*//p' "$audit_file" |
+        sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//' |
+        grep -Eq '^(adoptable|needs-authority|needs-verifier)$'; then
+      echo "git-intent: boundary audit '$audit_id' has adoptable or unresolved findings" >&2
+      exit 1
+    fi
+    (cd "$verify_dir" && sh "$audit_dir/audit-support.sh" fresh "$audit_id" HEAD) || {
+      echo "git-intent: boundary audit '$audit_id' is not fresh for the candidate" >&2
+      exit 1
+    }
+    echo "BOUNDARY-REVIEW: audit:$audit_id — no governance adoption required"
+    ;;
+  recorded)
+    for ref in $governance; do
+      governance_exists "$ref" || {
+        echo "git-intent: boundary governance '$ref' is not an accepted candidate record" >&2
+        exit 1
+      }
+    done
+    echo "BOUNDARY-REVIEW: recorded —$(printf ' %s' $governance)"
+    ;;
+esac
 
 run_locator() {
   locator=$1

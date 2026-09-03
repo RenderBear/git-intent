@@ -17,6 +17,10 @@ The system answers:
 It does not inventory a repository, persist ordinary reasoning, equate paths with domains, or add
 ceremony merely because governance is absent.
 
+Repository mutation and governance adoption are independent decisions. Every mutation is isolated
+on a work branch even when it needs no durable governance. Conversely, a very small implementation
+change can require adoption when it changes meaning that future work must preserve.
+
 ## 2. Planes and standing
 
 | Plane | Objects | Lifetime | Standing |
@@ -194,21 +198,41 @@ relates_to: [domain:ocr.engine.external]
 
 Adoption is promotion, not seeding or inventory.
 
+At briefing and again against the prospective tree, ask:
+
+> Could a future change be locally reasonable but systemically wrong unless it knew and preserved
+> this decision?
+
+The answer is yes when current work creates or changes a responsibility that needs stable identity;
+a relied-on interface, schema, wire, configuration, or storage promise; the owner of authoritative
+state; persistence, transaction, consistency, failure, recovery, or migration behavior; rollout or
+compatibility ordering; or an architectural restriction on future implementations. Change size and
+path layout do not decide this question.
+
+Behavior-preserving implementation substitutions, local refactors, tests, documentation, and
+one-consumer details need no new record when every existing promise and operational property remains
+unchanged. When durable meaning already has an accepted owner, amend the existing record rather than
+creating a parallel one.
+
 ```text
 brief current work
-  → no critical durable boundary: implement and land
-  → boundary needs durable meaning: scoped audit
-      → no record needed: continue
-      → authority or verifier missing: resolve bounded issue
-      → accepted: record material plus minimal governance
-          → validate
-          → re-brief
-          → dependent implementation may diverge
+  → durable-meaning test is negative: record no-record disposition, implement, and land
+  → durable meaning and authority are explicit: record minimal governance, re-brief, implement
+  → durable meaning is uncertain: scoped audit
+      → no record needed: record audit disposition, implement, and land
+      → authority or verifier missing: resolve bounded issue before dependent work diverges
+      → accepted: record material plus minimal governance, re-brief, implement
 ```
 
 `intent-audit` writes tracked evidence. `intent-record` is the only writer of accepted domains,
 contracts, constraints, and their defining material. A full audit requires an explicit human
 request and uses `--assisted` or `--auto` only after that authorization.
+
+Choose the artifact from the meaning, not the technology: a domain gives a responsibility stable
+identity; a contract protects an executable promise relied on by another domain; a constraint binds
+permitted architecture or operational behavior; an observation preserves a relevant nonbinding
+fact; and an ADR or other defining material holds rationale. A missing contract verifier is a
+`VERIFIER REQUIRED` result, not permission to silently omit the contract.
 
 ## 10. Briefing
 
@@ -226,7 +250,19 @@ Reach is:
 The digest covers only selected domain, contract, and constraint content. Configuration, audits,
 observations, worker availability, Git ancestry, and runtime never enter it.
 
-## 11. Parallel planning and leases
+## 11. Work branches, parallel planning, and leases
+
+After read-only briefing and before the first repository mutation, create a generated work branch
+from the captured integration head. The normal namespace is `intent/work/<uuid>`; names carry no
+semantic authority, so feature-versus-fix classification is unnecessary. Governance, documentation,
+fixes, refactors, and features all follow the same rule. A linked worktree is recommended for keeping
+the integration worktree clean but is not required for an uncoordinated unit. A lease remains specific
+to coordinated work.
+
+An uncoordinated work branch may be reused only for the same active goal when its prior landing is
+still the integration head and the branch worktree is clean. Fast-forward the branch to that landing
+before the next edit. If another integration commit intervened, or the goal changed, start a fresh
+branch from the current integration head. This is causal continuity, not UI-session identity.
 
 One prompt may contain several outcomes. The model decomposes them into units; tooling validates:
 
@@ -253,14 +289,23 @@ Landing captures the integration head, constructs a direct or merge candidate wi
 target, and checks it out detached. Against that exact tree it:
 
 1. recomputes semantic reach from actual paths and selected domains;
-2. resolves open or gated authority;
-3. validates all tracked intent;
-4. validates derived scope and semantic domain trailers;
-5. runs affected contract and constraint verifiers plus repository checks;
-6. requires acknowledgement of every affected semantic constraint review;
-7. authenticates coordinated leases and their combined claims;
-8. compare-and-swaps the integration ref from the captured head;
-9. releases landed leases and removes a completed plan.
+2. reports newly introduced mechanical topology as a review signal, never as inferred governance;
+3. requires an explicit boundary disposition: `no-record`, a fresh scoped audit that concludes no
+   adoption, or accepted governance references;
+4. resolves open or gated authority;
+5. validates all tracked intent;
+6. validates derived scope and semantic domain trailers;
+7. runs affected contract and constraint verifiers plus repository checks;
+8. requires acknowledgement of every affected semantic constraint review;
+9. authenticates coordinated leases and their combined claims;
+10. compare-and-swaps the integration ref from the captured head;
+11. releases landed leases and removes a completed plan.
+
+Normal landing merges a work branch. Direct landing is permitted only to create the first commit on
+an unborn integration branch, where no branch can yet be based on a commit. A naked acknowledgement
+is not a boundary disposition: the caller must state that the durable-meaning test was negative,
+identify the concluding audit, or name the accepted governance that owns the meaning. Landing
+preserves that result in `Intent-Boundary` and `Intent-Governance` commit trailers.
 
 Any failure before the ref update leaves the target unchanged. If another landing wins the race,
 compare-and-swap fails rather than overwriting it.
@@ -269,10 +314,13 @@ compare-and-swap fails rather than overwriting it.
 
 Mechanics owns schemas, reference integrity, derived scopes, plan DAGs, reliance order, claim
 overlap, causal freshness, governing digests, affected verifier selection, exact-tree construction,
-trailer checks, lease authentication, and atomic ref updates.
+trailer checks, boundary-disposition shape and references, lease authentication, and atomic ref
+updates.
 
 Model judgment owns outcome decomposition, domain selection, distinguishing contracts from
 constraints, interpreting evidence, authoring accepted assertions and material, reviewing semantic
-constraint compliance, and resolving incompatible meaning under configured authority.
+constraint compliance, the durable-meaning decision, and resolving incompatible meaning under
+configured authority.
 
-The governing rule remains: use the smallest lifecycle that safely completes the request.
+The governing rule remains: isolate every mutation, then use the smallest governance and
+coordination lifecycle that safely completes the request.

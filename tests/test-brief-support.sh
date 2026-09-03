@@ -71,7 +71,16 @@ die() { echo "not ok - $1"; exit 1; }
 out=$(cd "$fixture" && sh "$brief" reach --paths ui/view.txt)
 printf '%s\n' "$out" | grep -q '^REACH: local$' || die "ordinary UI change gained governance ceremony"
 printf '%s\n' "$out" | grep -q '^TOPOLOGY: area.ui$' || die "derived scope missing"
+printf '%s\n' "$out" | grep -q '^TOPOLOGY-NEW:' && die "existing UI topology was reported as new"
 ok "simple ungoverned UI work remains local"
+
+mkdir -p "$fixture/migrations"
+printf 'create table example(id integer);\n' >"$fixture/migrations/001.sql"
+out=$(cd "$fixture" && sh "$brief" reach --paths migrations/001.sql)
+printf '%s\n' "$out" | grep -q '^TOPOLOGY-NEW: area.migrations$' || die "new area topology was not reported"
+printf '%s\n' "$out" | grep -q '^REACH: local$' || die "new topology invented governance reach"
+rm -rf "$fixture/migrations"
+ok "new topology is advisory and remains semantically local"
 
 out=$(cd "$fixture" && sh "$brief" reach --paths src/ocr/engine.txt --domain ocr.external)
 printf '%s\n' "$out" | grep -q '^AFFECTED: contract:ocr.protocol.v1 (bounded)$' || die "domain contract not selected"
@@ -121,4 +130,4 @@ git -C "$fixture" commit -qam "$msg"
 (cd "$fixture" && sh "$brief" trailer HEAD >/dev/null) || die "honest derived scope/domain trailers failed"
 ok "commit trailers retain mechanical scope and semantic domain separately"
 
-echo "8 brief checks passed"
+echo "9 brief checks passed"

@@ -7,7 +7,9 @@ landing. Read [SPEC.md](SPEC.md) for the design of record.
 
 ## Core invariants
 
-- The smallest lifecycle is `brief → implement → land`.
+- Brief read-only, then create `intent/work/<uuid>` before every repository mutation and merge-land
+  it; direct landing exists only for an unborn integration branch.
+- Branch isolation and governance adoption are independent decisions.
 - Missing governance never initializes state or blocks ordinary work.
 - Domains are semantic responsibility clusters, not filesystem boundaries.
 - Contracts are relied-on cross-domain promises with executable verification.
@@ -18,6 +20,7 @@ landing. Read [SPEC.md](SPEC.md) for the design of record.
 - Plans validate DAG, reliance order, checks, and unordered claim disjointness mechanically.
 - Leases use Git ancestry and intersection for freshness; time only schedules liveness checks.
 - Landing validates the exact prospective tree and compare-and-swaps the target ref.
+- Landing requires an explicit durable-boundary disposition; new topology is only a review signal.
 - Failed landing never moves the target.
 - Push and other external effects require explicit request authority.
 
