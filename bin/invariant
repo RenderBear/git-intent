@@ -1,0 +1,12 @@
+#!/bin/sh
+# Source-tree launcher. Installed packages expose the same entry point through
+# [project.scripts]; this file exists for repository development and tests.
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+python="$root/.venv/bin/python"
+if [ ! -x "$python" ]; then
+  python=${PYTHON:-python3}
+fi
+
+PYTHONPATH="$root/src${PYTHONPATH:+:$PYTHONPATH}" exec "$python" -m invariant "$@"

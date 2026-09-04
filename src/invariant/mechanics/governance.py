@@ -1,0 +1,700 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Iterable
+
+import yaml
+
+from invariant.errors import InvariantError
+from invariant.mechanics import git
+
+
+GOVERNANCE_FILES = (
+    ".invariant/DOMAINS.yml",
+    ".invariant/CONTRACTS.yml",
+    ".invariant/CONSTRAINTS.yml",
+)
+TEST_DIRECTORIES = {"tests", "test", "spec", "__tests__"}
+PACKAGE_MARKERS = {"package.json", "pyproject.toml", "Cargo.toml", "go.mod"}
+
+
+def refs(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    if isinstance(value, str):
+        stripped = value.strip().strip("[]")
+        return [item.strip() for item in stripped.split(",") if item.strip()]
+    return []
+
+
+def _load(repo: Path, relative: str, at: str | None = None) -> dict[str, Any]:
+    if at:
+        result = git.run(["show", f"{at}:{relative}"], cwd=repo, check=False)
+        if result.returncode or not result.stdout:
+            return {}
+        try:
+            raw = yaml.safe_load(result.stdout)
+        except yaml.YAMLError as exc:
+            raise InvariantError(f"Invariant: invalid YAML in {relative} at {at}: {exc}") from exc
+    else:
+        path = repo / relative
+        if not path.is_file():
+            return {}
+        try:
+            raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise InvariantError(f"Invariant: invalid YAML in {relative}: {exc}") from exc
+    return raw if isinstance(raw, dict) else {}
+
+
+def domains(repo: Path, at: str | None = None) -> list[dict[str, Any]]:
+    value = _load(repo, GOVERNANCE_FILES[0], at).get("domains", [])
+    return value if isinstance(value, list) else []
+
+
+def contracts(repo: Path, at: str | None = None) -> list[dict[str, Any]]:
+    value = _load(repo, GOVERNANCE_FILES[1], at).get("contracts", [])
+    return value if isinstance(value, list) else []
+
+
+def constraints(repo: Path, at: str | None = None) -> list[dict[str, Any]]:
+    value = _load(repo, GOVERNANCE_FILES[2], at).get("constraints", [])
+    return value if isinstance(value, list) else []
+
+
+def expand_domains(repo: Path, selected: Iterable[str], at: str | None = None) -> list[str]:
+    rows = {str(row.get("id")): row for row in domains(repo, at) if row.get("id")}
+    expanded = set(selected)
+    pending = list(expanded)
+    while pending:
+        item = pending.pop()
+        if item not in rows:
+            raise InvariantError(f"Invariant: unknown semantic domain '{item}'", exit_code=1, code="unknown_domain")
+        parent = rows[item].get("parent")
+        if isinstance(parent, str) and parent and parent not in expanded:
+            expanded.add(parent)
+            pending.append(parent)
+    return sorted(expanded)
+
+
+def architecture_refs(value: Any) -> list[str]:
+    return [item for item in refs(value) if item.startswith("architecture:")]
+
+
+def slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9_-]", "-", value.lower())
+
+
+def derived_scopes(repo: Path, path: str) -> list[str]:
+    if path == ".invariant" or path.startswith(".invariant/"):
+        return []
+    parts = Path(path).parts
+    if len(parts) <= 1 or parts[0].startswith("."):
+        return ["area.root"]
+    result = [f"area.{slug(parts[0])}"]
+    directory = repo / Path(*parts[:-1])
+    while directory != repo and repo in directory.parents:
+        for marker in PACKAGE_MARKERS:
+            if (directory / marker).is_file():
+                result.append(f"pkg.{slug(directory.name)}")
+                break
+        directory = directory.parent
+    return sorted(set(result))
+
+
+def scopes_for_tree(repo: Path, ref: str) -> list[str]:
+    output = git.run(["ls-tree", "-r", "--name-only", ref, "--"], cwd=repo, check=False).stdout
+    result: set[str] = set()
+    for path in output.splitlines():
+        if path == ".invariant" or path.startswith(".invariant/"):
+            continue
+        parts = Path(path).parts
+        if len(parts) == 1 or parts[0].startswith("."):
+            result.add("area.root")
+        else:
+            result.add(f"area.{slug(parts[0])}")
+        if parts and parts[-1] in PACKAGE_MARKERS and len(parts) > 1:
+            result.add(f"pkg.{slug(parts[-2])}")
+    return sorted(result)
+
+
+def context_map(repo: Path) -> list[str]:
+    output = git.run(["ls-files", "--"], cwd=repo, check=False).stdout
+    directories: set[str] = set()
+    root_seen = False
+    for path in output.splitlines():
+        parts = Path(path).parts
+        if not parts or parts[0] == ".invariant":
+            continue
+        if len(parts) == 1 or parts[0].startswith("."):
+            root_seen = True
+        else:
+            directories.add(parts[0])
+    lines: list[str] = []
+    for directory in sorted(directories):
+        if directory in TEST_DIRECTORIES:
+            lines.append(f"ATTACH: {directory} — canonical test paths attach to code boundaries")
+        else:
+            lines.append(f"BOUNDARY: area.{slug(directory)} {directory}")
+    if root_seen:
+        lines.append("BOUNDARY: area.root .")
+    return lines
+
+
+def _locator_path(locator: str) -> tuple[str | None, str | None]:
+    if locator.startswith(("task:", "url:", "interface:", "commit:")):
+        return None, None
+    value = locator.split(":", 1)[1] if ":" in locator else locator
+    value = value.split("::", 1)[0]
+    if "#" in value:
+        path, anchor = value.split("#", 1)
+        return path, anchor
+    return value, None
+
+
+def paths_related(first: str, second: str) -> bool:
+    return first == second or first.startswith(second + "/") or second.startswith(first + "/")
+
+
+def _heading_slug(value: str) -> str:
+    value = re.sub(r"[`*_~]", "", value.lower())
+    value = re.sub(r"[^a-z0-9 _-]", "", value)
+    value = re.sub(r"\s+", "-", value).strip("-")
+    return value
+
+
+def _section_bounds(content: str, anchor: str) -> tuple[int, int] | None:
+    headings: list[tuple[int, int, str]] = []
+    lines = content.splitlines()
+    for number, line in enumerate(lines, 1):
+        match = re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        if match:
+            headings.append((number, len(match.group(1)), _heading_slug(match.group(2))))
+    for index, (start, level, found) in enumerate(headings):
+        if found != anchor:
+            continue
+        end = len(lines)
+        for next_start, next_level, _ in headings[index + 1 :]:
+            if next_level <= level:
+                end = next_start - 1
+                break
+        return start, end
+    return None
+
+
+def _content(repo: Path, ref: str | None, path: str) -> str:
+    if ref:
+        return git.run(["show", f"{ref}:{path}"], cwd=repo, check=False).stdout
+    candidate = repo / path
+    return candidate.read_text(encoding="utf-8") if candidate.is_file() else ""
+
+
+def _changed_ranges(diff: str) -> list[tuple[int, int, int, int]]:
+    ranges: list[tuple[int, int, int, int]] = []
+    for line in diff.splitlines():
+        match = re.match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
+        if match:
+            ranges.append(
+                (
+                    int(match.group(1)),
+                    int(match.group(2) or "1"),
+                    int(match.group(3)),
+                    int(match.group(4) or "1"),
+                )
+            )
+    return ranges
+
+
+def markdown_section_hit(repo: Path, path: str, anchor: str, base: str | None, tip: str | None = None) -> bool | None:
+    if Path(path).suffix.lower() not in {".md", ".markdown"}:
+        return None
+    comparison = base or "HEAD"
+    args = ["diff", "--unified=0", comparison]
+    if tip:
+        args.append(tip)
+    args.extend(["--", path])
+    diff = git.run(args, cwd=repo, check=False).stdout
+    ranges = _changed_ranges(diff)
+    if not ranges:
+        return None
+    old = _content(repo, comparison, path)
+    new = _content(repo, tip, path) if tip else _content(repo, None, path)
+    old_bounds = _section_bounds(old, anchor)
+    new_bounds = _section_bounds(new, anchor)
+    if not old_bounds and not new_bounds:
+        return None
+
+    def overlaps(start: int, count: int, bounds: tuple[int, int] | None) -> bool:
+        if not bounds or count <= 0:
+            return False
+        return start <= bounds[1] and start + count - 1 >= bounds[0]
+
+    return any(overlaps(os, oc, old_bounds) or overlaps(ns, nc, new_bounds) for os, oc, ns, nc in ranges)
+
+
+def path_hits(
+    repo: Path,
+    changed: Iterable[str],
+    locators: Any,
+    base: str | None = None,
+    tip: str | None = None,
+) -> bool:
+    changed_values = list(changed)
+    for locator in refs(locators):
+        path, anchor = _locator_path(locator)
+        if not path:
+            continue
+        for candidate in changed_values:
+            if not paths_related(candidate, path):
+                continue
+            if candidate == path and anchor:
+                section = markdown_section_hit(repo, path, anchor, base, tip)
+                if section is False:
+                    continue
+            return True
+    return False
+
+
+def first_path_intersection(changed: Iterable[str], locators: Any) -> str | None:
+    for locator in refs(locators):
+        if not locator.startswith(("repo:", "architecture:", "adr:", "schema:")):
+            continue
+        path, _ = _locator_path(locator)
+        if path:
+            for candidate in changed:
+                if paths_related(candidate, path):
+                    return candidate
+    return None
+
+
+@dataclass(frozen=True)
+class Affected:
+    kind: str
+    identifier: str
+    level: str
+    verifies: tuple[str, ...]
+    assertion: str
+
+
+def _domain_contract_ids(repo: Path, selected: set[str], at: str | None = None) -> set[str]:
+    result: set[str] = set()
+    for row in domains(repo, at):
+        if row.get("id") in selected:
+            result.update(refs(row.get("contracts")))
+    return result
+
+
+def compile_affected(
+    repo: Path,
+    paths: Iterable[str],
+    selected_domains: Iterable[str],
+    interfaces: Iterable[str],
+    *,
+    base: str | None = None,
+    tip: str | None = None,
+    at: str | None = None,
+) -> list[Affected]:
+    changed = list(paths)
+    selected = set(expand_domains(repo, selected_domains, at))
+    interface_set = set(interfaces)
+    selected_contracts = _domain_contract_ids(repo, selected, at)
+    affected: dict[tuple[str, str], Affected] = {}
+
+    def add(item: Affected) -> None:
+        key = (item.kind, item.identifier)
+        existing = affected.get(key)
+        if existing is None or item.level == "open":
+            affected[key] = item
+
+    for row in contracts(repo, at):
+        identifier = str(row.get("id", ""))
+        between = set(refs(row.get("between")))
+        surfaces = refs(row.get("surfaces"))
+        architecture = row.get("architecture", row.get("material"))
+        verifies = tuple(refs(row.get("verifies")))
+        level = ""
+        if (
+            selected.intersection(between)
+            or identifier in selected_contracts
+            or path_hits(repo, changed, surfaces, base, tip)
+            or any(surface == f"interface:{name}" for name in interface_set for surface in surfaces)
+        ):
+            level = "bounded"
+        if path_hits(repo, changed, architecture, base, tip) or path_hits(repo, changed, verifies, base, tip):
+            level = "open"
+        if level:
+            add(Affected("contract", identifier, level, verifies, str(row.get("assertion", ""))))
+            for locator in architecture_refs(architecture):
+                architecture_level = "open" if path_hits(repo, changed, [locator], base, tip) else level
+                add(
+                    Affected(
+                        "architecture",
+                        locator.removeprefix("architecture:"),
+                        architecture_level,
+                        (),
+                        "Review the referenced architectural decision.",
+                    )
+                )
+
+    for row in domains(repo, at):
+        identifier = str(row.get("id", ""))
+        for locator in architecture_refs(row.get("architecture", row.get("material"))):
+            level = "bounded" if identifier in selected else ""
+            if path_hits(repo, changed, [locator], base, tip):
+                level = "open"
+            if level:
+                add(
+                    Affected(
+                        "architecture",
+                        locator.removeprefix("architecture:"),
+                        level,
+                        (),
+                        "Review the referenced architectural decision.",
+                    )
+                )
+
+    for row in constraints(repo, at):
+        applies = set(refs(row.get("applies_to")))
+        surfaces = refs(row.get("surfaces"))
+        material = row.get("material")
+        verifies = tuple(refs(row.get("verifies")))
+        level = ""
+        if (
+            selected.intersection(applies)
+            or path_hits(repo, changed, surfaces, base, tip)
+            or any(surface == f"interface:{name}" for name in interface_set for surface in surfaces)
+        ):
+            level = "bounded"
+        if path_hits(repo, changed, material, base, tip) or path_hits(repo, changed, verifies, base, tip):
+            level = "open"
+        if level:
+            add(
+                Affected(
+                    "constraint",
+                    str(row.get("id", "")),
+                    level,
+                    verifies,
+                    str(row.get("assertion", "")),
+                )
+            )
+    return sorted(affected.values(), key=lambda item: (item.kind, item.identifier))
+
+
+def _governance_change_class(repo: Path, paths: list[str], base: str | None, tip: str | None = None) -> str:
+    if not any(path in GOVERNANCE_FILES for path in paths):
+        return "none"
+    if not base:
+        existing_change = False
+        for relative in GOVERNANCE_FILES:
+            tracked = git.run(["ls-files", "--error-unmatch", relative], cwd=repo, check=False).returncode == 0
+            if tracked and git.run(["diff", "--quiet", "HEAD", "--", relative], cwd=repo, check=False).returncode:
+                existing_change = True
+        return "gated" if existing_change else "open"
+    args = ["diff", "--unified=0", base]
+    if tip:
+        args.append(tip)
+    args.extend(["--", *GOVERNANCE_FILES])
+    diff = git.run(args, cwd=repo, check=False).stdout
+    removed = any(line.startswith("-") and not line.startswith("---") for line in diff.splitlines())
+    return "gated" if removed else "open"
+
+
+def _discovery_records(repo: Path) -> list[tuple[Path, dict[str, Any]]]:
+    directory = repo / ".invariant" / "discoveries"
+    result: list[tuple[Path, dict[str, Any]]] = []
+    if not directory.is_dir():
+        return result
+    for path in sorted(directory.glob("*.yml")):
+        try:
+            raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            continue
+        if isinstance(raw, dict):
+            result.append((path, raw))
+    return result
+
+
+def discovery_lines(repo: Path, paths: list[str], selected_domains: list[str]) -> list[str]:
+    output: list[str] = []
+    selected = set(selected_domains)
+    head = git.resolve(repo, "HEAD")
+    for _, row in _discovery_records(repo):
+        disposition = row.get("disposition") if isinstance(row.get("disposition"), dict) else {}
+        status = str(row.get("status") or disposition.get("state") or "open")
+        if status not in {"pending", "stale", "open"}:
+            continue
+        relevance = row.get("relevance") if isinstance(row.get("relevance"), dict) else {}
+        basis = row.get("basis") if isinstance(row.get("basis"), dict) else {}
+        selected_refs = refs(row.get("domains")) + refs(relevance.get("domains"))
+        evidence = refs(row.get("evidence")) + refs(basis.get("evidence")) + [
+            f"repo:{item}" for item in refs(basis.get("paths")) + refs(relevance.get("paths"))
+        ]
+        if not selected.intersection(selected_refs) and not path_hits(repo, paths, evidence):
+            continue
+        state = status
+        detail: str | None = None
+        ground = str(row.get("ground") or basis.get("ground") or "")
+        tree = str(row.get("tree") or basis.get("tree") or "")
+        if status in {"pending", "open"}:
+            if ground and ground != "unborn" and (not head or not git.is_ancestor(repo, ground, head)):
+                state = "diverged"
+            elif tree and tree != "empty" and head:
+                changed = git.changed_paths(repo, tree, f"{head}^{{tree}}")
+                if path_hits(repo, changed, evidence):
+                    state = "needs-review"
+                    detail = first_path_intersection(changed, evidence)
+        identifier = row.get("id")
+        if detail:
+            output.append(f"DISCOVERY: {identifier} ({state} — changed evidence {detail})")
+        else:
+            output.append(f"DISCOVERY: {identifier} ({state})")
+    return output
+
+
+def reach(
+    repo: Path,
+    *,
+    paths: list[str] | None = None,
+    domains_selected: list[str] | None = None,
+    interfaces: list[str] | None = None,
+    base: str | None = None,
+    history: bool = False,
+    root_mode: bool = False,
+) -> list[str]:
+    selected = domains_selected or []
+    interface_values = interfaces or []
+    if paths is None:
+        if root_mode:
+            output = git.run(["ls-tree", "-r", "--name-only", "HEAD", "--"], cwd=repo, check=False).stdout
+            changed = output.splitlines()
+        elif history and base:
+            changed = git.history_changed_paths(repo, base)
+        else:
+            changed = git.changed_paths(repo, base)
+    else:
+        changed = sorted(set(paths))
+    expanded = expand_domains(repo, selected)
+    affected = compile_affected(repo, changed, expanded, interface_values, base=base)
+    scopes = sorted({scope for path in changed for scope in derived_scopes(repo, path)})
+    lines = [f"TOPOLOGY: {scope}" for scope in scopes]
+    comparison = base or git.resolve(repo, "HEAD")
+    if comparison:
+        base_scopes = set(scopes_for_tree(repo, comparison))
+        for scope in scopes:
+            if scope in {"area.tests", "area.test", "area.spec", "area.__tests__"}:
+                continue
+            if scope not in base_scopes:
+                lines.append(f"TOPOLOGY-NEW: {scope}")
+    for item in affected:
+        lines.append(f"AFFECTED: {item.kind}:{item.identifier} ({item.level})")
+        if item.kind in {"architecture", "constraint"}:
+            lines.append(f"REVIEW: {item.kind}:{item.identifier} {item.assertion}")
+    lines.extend(discovery_lines(repo, changed, expanded))
+    structural = _governance_change_class(repo, changed, base)
+    if structural == "gated":
+        lines.append("GOVERNANCE: existing accepted record changed or removed")
+        verdict = "gated"
+    elif structural == "open":
+        lines.append("GOVERNANCE: additive record establishment")
+        verdict = "open"
+    elif any(item.level == "open" for item in affected):
+        verdict = "open"
+    elif affected:
+        verdict = "bounded"
+    else:
+        verdict = "local"
+    lines.append(f"REACH: {verdict}")
+    return lines
+
+
+def verifiers(
+    repo: Path,
+    *,
+    paths: list[str] | None = None,
+    domains_selected: list[str] | None = None,
+    interfaces: list[str] | None = None,
+    base: str | None = None,
+    history: bool = False,
+    root_mode: bool = False,
+) -> list[str]:
+    if paths is None:
+        if root_mode:
+            changed = git.run(["ls-tree", "-r", "--name-only", "HEAD", "--"], cwd=repo).stdout.splitlines()
+        elif history and base:
+            changed = git.history_changed_paths(repo, base)
+        else:
+            changed = git.changed_paths(repo, base)
+    else:
+        changed = paths
+    affected = compile_affected(repo, changed, domains_selected or [], interfaces or [], base=base)
+    lines: list[str] = []
+    for item in affected:
+        if item.kind in {"architecture", "constraint"}:
+            lines.append(f"REVIEW: {item.kind}:{item.identifier} {item.assertion}")
+        for locator in item.verifies:
+            lines.append(f"VERIFY: {item.kind}:{item.identifier} {locator}")
+    return lines
+
+
+def governing_rows(repo: Path, selected: Iterable[str], at: str | None = None) -> list[str]:
+    expanded = set(expand_domains(repo, selected, at))
+    selected_contracts = _domain_contract_ids(repo, expanded, at)
+    rows: list[str] = []
+    for row in domains(repo, at):
+        if row.get("id") not in expanded:
+            continue
+        rows.append(
+            "DOMAIN|{id}|{parent}|{responsibility}|{architecture}|{contracts}|{authority}".format(
+                id=row.get("id", ""),
+                parent=row.get("parent", ""),
+                responsibility=row.get("responsibility", row.get("description", "")),
+                architecture=" ".join(refs(row.get("architecture", row.get("material")))),
+                contracts=" ".join(refs(row.get("contracts"))),
+                authority=row.get("authority", ""),
+            )
+        )
+    for row in contracts(repo, at):
+        if not expanded.intersection(refs(row.get("between"))) and row.get("id") not in selected_contracts:
+            continue
+        rows.append(
+            "CONTRACT|{id}|{between}|{surfaces}|{architecture}|{verifies}|{assertion}|{authority}".format(
+                id=row.get("id", ""),
+                between=" ".join(refs(row.get("between"))),
+                surfaces=" ".join(refs(row.get("surfaces"))),
+                architecture=" ".join(refs(row.get("architecture", row.get("material")))),
+                verifies=" ".join(refs(row.get("verifies"))),
+                assertion=str(row.get("assertion", "")).replace("|", "%7C"),
+                authority=row.get("authority", ""),
+            )
+        )
+    for row in constraints(repo, at):
+        if expanded.intersection(refs(row.get("applies_to"))):
+            rows.append(
+                "CONSTRAINT|{id}|{applies}|{surfaces}|{material}|{verifies}|{assertion}|{authority}".format(
+                    id=row.get("id", ""),
+                    applies=" ".join(refs(row.get("applies_to"))),
+                    surfaces=" ".join(refs(row.get("surfaces"))),
+                    material=" ".join(refs(row.get("material"))),
+                    verifies=" ".join(refs(row.get("verifies"))),
+                    assertion=str(row.get("assertion", "")).replace("|", "%7C"),
+                    authority=row.get("authority", ""),
+                )
+            )
+    return sorted(rows)
+
+
+def display_rows(repo: Path, selected: Iterable[str]) -> list[str]:
+    output: set[str] = set()
+    for row in governing_rows(repo, selected):
+        values = row.split("|")
+        if values[0] == "DOMAIN":
+            output.add(f"DOMAIN {values[1]} — {values[3]}")
+            for locator in architecture_refs(values[4]):
+                output.add(f"ARCHITECTURE {locator}")
+        elif values[0] == "CONTRACT":
+            output.add(f"CONTRACT {values[1]} — {values[6]}")
+            for locator in architecture_refs(values[4]):
+                output.add(f"ARCHITECTURE {locator}")
+        elif values[0] == "CONSTRAINT":
+            output.add(f"LEGACY-CONSTRAINT {values[1]} — {values[6]}")
+    lines = sorted(output)
+    return [*lines, f"ROWS: {len(lines)}"]
+
+
+def digest(repo: Path, selected: Iterable[str], at: str | None = None) -> str:
+    if at and not git.resolve(repo, at):
+        raise InvariantError(f"Invariant: governance commit '{at}' does not resolve")
+    content = "\n".join(governing_rows(repo, selected, at))
+    if content:
+        content += "\n"
+    return git.hash_text(repo, content)
+
+
+def material_changes(repo: Path, base: str, tip: str, selected: Iterable[str]) -> list[str]:
+    if not git.resolve(repo, base):
+        raise InvariantError(f"Invariant: material base '{base}' does not resolve")
+    if not git.resolve(repo, tip):
+        raise InvariantError(f"Invariant: material tip '{tip}' does not resolve")
+    changed = git.changed_paths(repo, base, tip)
+    output: set[str] = set()
+    for row in governing_rows(repo, selected, tip):
+        values = row.split("|")
+        if values[0] not in {"DOMAIN", "CONTRACT", "CONSTRAINT"}:
+            continue
+        for locator in refs(values[4]):
+            if not locator.startswith(("task:", "url:")) and path_hits(repo, changed, [locator], base, tip):
+                output.add(f"MATERIAL-CHANGED: {locator}")
+    return sorted(output)
+
+
+def commit_message(
+    repo: Path,
+    subject: str,
+    units: Iterable[str],
+    scopes: Iterable[str],
+    selected_domains: Iterable[str] = (),
+    plan: str | None = None,
+) -> str:
+    unit_values = list(units)
+    scope_values = list(scopes)
+    if not unit_values or not scope_values:
+        raise InvariantError("Invariant: commit message requires units and scopes")
+    lines = [subject, ""]
+    lines.extend(f"Intent-Unit: {item}" for item in unit_values)
+    lines.extend(f"Intent-Scope: {item}" for item in scope_values)
+    lines.extend(f"Intent-Domain: {item}" for item in selected_domains)
+    if plan:
+        plan_file = git.primary_worktree(repo) / ".invariant" / "runtime" / "plans" / f"{plan}.yml"
+        if not plan_file.is_file():
+            raise InvariantError(f"Invariant: no plan '{plan}' to stamp")
+        import zlib
+
+        data = plan_file.read_bytes()
+        lines.append(f"Intent-Plan: {plan}")
+        lines.append(f"Intent-Plan-Digest: {zlib.crc32(data) & 0xffffffff}-{len(data)}")
+    return "\n".join(lines) + "\n"
+
+
+def validate_trailer(repo: Path, commit: str) -> list[str]:
+    claimed = git.trailers(repo, commit, "Intent-Scope")
+    if not claimed:
+        raise InvariantError(f"TRAILER: missing Intent-Scope on {commit}", exit_code=1, code="invalid_trailer")
+    domain_ids = {str(row.get("id")) for row in domains(repo)}
+    for domain in git.trailers(repo, commit, "Intent-Domain"):
+        if domain not in domain_ids:
+            raise InvariantError(f"TRAILER: unknown Intent-Domain {domain}", exit_code=1, code="invalid_trailer")
+    architecture = {
+        locator
+        for row in [*domains(repo), *contracts(repo)]
+        for locator in architecture_refs(row.get("architecture", row.get("material")))
+    }
+    for review in git.trailers(repo, commit, "Intent-Architecture"):
+        if not review.startswith("architecture:"):
+            raise InvariantError(f"TRAILER: invalid Intent-Architecture {review}", exit_code=1)
+        if review not in architecture:
+            raise InvariantError(f"TRAILER: unreferenced Intent-Architecture {review}", exit_code=1)
+    parent = git.resolve(repo, f"{commit}^")
+    changed = git.changed_paths(repo, parent, commit) if parent else git.run(
+        ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", commit], cwd=repo
+    ).stdout.splitlines()
+    bad: list[str] = []
+    for path in changed:
+        if path == ".invariant" or path.startswith(".invariant/"):
+            continue
+        top = path.split("/", 1)[0]
+        if top in TEST_DIRECTORIES:
+            continue
+        ids = derived_scopes(repo, path)
+        if not any(
+            claim == item or claim.startswith(item + ".") or item.startswith(claim + ".")
+            for claim in claimed
+            for item in ids
+        ):
+            bad.append(path)
+    if bad:
+        raise InvariantError(f"TRAILER: claimed scopes do not contain: {' '.join(bad)}", exit_code=1)
+    return [f"TRAILER: OK {' '.join(claimed)}"]

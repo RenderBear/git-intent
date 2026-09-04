@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="420" viewBox="0 0 1000 420" role="img" aria-labelledby="title desc">
+  <title id="title">The Invariant lifecycle: brief, work branch, candidate tree, verification, and an atomic integration ref update</title>
+  <desc id="desc">A read-only brief leads to an isolated work branch, an exact prospective tree, verification against that tree, and a compare-and-swap of the integration ref. Tracked governance sits inside Git and both informs the brief and is enforced at verification. The planning plane sits outside Git because its runtime is ignored.</desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M 0 0 L 9 4.5 L 0 9 z" fill="#778293"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M 0 0 L 9 4.5 L 0 9 z" fill="#70c99a"/>
+    </marker>
+    <marker id="arrow-cyan" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M 0 0 L 9 4.5 L 0 9 z" fill="#58c7df"/>
+    </marker>
+    <marker id="arrow-amber" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M 0 0 L 9 4.5 L 0 9 z" fill="#d6a15f"/>
+    </marker>
+  </defs>
+
+  <rect width="1000" height="420" fill="#0d1117"/>
+
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, sans-serif">
+
+    <!-- Planning: outside the Git frame, because runtime is ignored. -->
+    <rect x="178" y="26" width="342" height="74" rx="8" fill="#17130c" stroke="#7a6438"
+          stroke-width="1.5" stroke-dasharray="6 5"/>
+    <text x="349" y="54" text-anchor="middle" fill="#d6a15f" font-size="11" font-weight="700"
+          letter-spacing="1.3">PLANNING · IGNORED RUNTIME</text>
+    <text x="349" y="78" text-anchor="middle" fill="#9b8f7c" font-size="12">plans · claims · leases</text>
+    <text x="540" y="60" fill="#847a66" font-size="11.5">outside Git by design —</text>
+    <text x="540" y="78" fill="#847a66" font-size="11.5">deleting it cannot change repository meaning</text>
+
+    <!-- Git: everything durable and causal lives inside this frame. -->
+    <rect x="16" y="120" width="968" height="276" rx="10" fill="#10151c" stroke="#262d38" stroke-width="1.5"/>
+    <text x="34" y="145" fill="#8e99a8" font-size="11" font-weight="700" letter-spacing="1.4">GIT</text>
+    <text x="70" y="145" fill="#7b8593" font-size="11.5">trees · commits · refs · ancestry</text>
+
+    <!-- Planning attaches to the branch and crosses out of the Git frame. -->
+    <path d="M 256 100 L 256 171" fill="none" stroke="#d6a15f" stroke-width="1.6"
+          stroke-dasharray="5 4" marker-end="url(#arrow-amber)"/>
+
+    <!-- Lifecycle spine -->
+    <rect x="30" y="173" width="128" height="74" rx="8" fill="#161c25" stroke="#303946"/>
+    <text x="94" y="207" text-anchor="middle" fill="#f0f3f6" font-size="15" font-weight="600">brief</text>
+    <text x="94" y="227" text-anchor="middle" fill="#828b99" font-size="11.5">read-only</text>
+
+    <rect x="178" y="173" width="156" height="74" rx="8" fill="#161c25" stroke="#303946"/>
+    <text x="256" y="205" text-anchor="middle" fill="#f0f3f6" font-size="15" font-weight="600">work branch</text>
+    <text x="256" y="226" text-anchor="middle" fill="#828b99" font-size="11"
+          font-family="ui-monospace, SFMono-Regular, Menlo, monospace">intent/work/&lt;uuid&gt;</text>
+
+    <rect x="354" y="173" width="166" height="74" rx="8" fill="#161c25" stroke="#303946"/>
+    <text x="437" y="205" text-anchor="middle" fill="#f0f3f6" font-size="15" font-weight="600">candidate tree</text>
+    <text x="437" y="226" text-anchor="middle" fill="#828b99" font-size="11.5">dangling · exact</text>
+
+    <rect x="540" y="173" width="156" height="74" rx="8" fill="#161c25" stroke="#303946"/>
+    <text x="618" y="205" text-anchor="middle" fill="#f0f3f6" font-size="15" font-weight="600">verify</text>
+    <text x="618" y="226" text-anchor="middle" fill="#828b99" font-size="11.5">verifiers · reviews</text>
+
+    <rect x="792" y="173" width="178" height="74" rx="8" fill="#161c25" stroke="#42544c"/>
+    <text x="881" y="205" text-anchor="middle" fill="#f0f3f6" font-size="15" font-weight="600">integration ref</text>
+    <text x="881" y="226" text-anchor="middle" fill="#828b99" font-size="11.5">advances only on success</text>
+
+    <path d="M 158 210 L 172 210" fill="none" stroke="#778293" stroke-width="1.8" marker-end="url(#arrow)"/>
+    <path d="M 334 210 L 348 210" fill="none" stroke="#778293" stroke-width="1.8" marker-end="url(#arrow)"/>
+    <path d="M 520 210 L 534 210" fill="none" stroke="#778293" stroke-width="1.8" marker-end="url(#arrow)"/>
+
+    <path d="M 696 210 L 786 210" fill="none" stroke="#70c99a" stroke-width="2" marker-end="url(#arrow-green)"/>
+    <text x="741" y="163" text-anchor="middle" fill="#7acda0" font-size="10.5" font-weight="700"
+          letter-spacing="1.2">COMPARE-AND-SWAP</text>
+    <text x="741" y="272" text-anchor="middle" fill="#7b8593" font-size="11">failure never</text>
+    <text x="741" y="287" text-anchor="middle" fill="#7b8593" font-size="11">moves the target</text>
+
+    <!-- Governance: tracked, inside Git, feeding both ends of the lifecycle. -->
+    <rect x="30" y="300" width="666" height="72" rx="8" fill="#111c22" stroke="#2c4a55"/>
+    <text x="52" y="328" fill="#69ccdf" font-size="11" font-weight="700" letter-spacing="1.3">GOVERNANCE · TRACKED</text>
+    <text x="52" y="352" fill="#8d99a3" font-size="12">domains · contracts · constraints · defining material</text>
+
+    <path d="M 94 300 L 94 251" fill="none" stroke="#58c7df" stroke-width="1.8" marker-end="url(#arrow-cyan)"/>
+    <text x="106" y="281" fill="#69ccdf" font-size="10.5">compiled</text>
+
+    <path d="M 618 300 L 618 251" fill="none" stroke="#58c7df" stroke-width="1.8" marker-end="url(#arrow-cyan)"/>
+    <text x="630" y="281" fill="#69ccdf" font-size="10.5">enforced</text>
+
+    <path d="M 300 251 L 300 296" fill="none" stroke="#58c7df" stroke-width="1.6"
+          stroke-dasharray="5 4" marker-end="url(#arrow-cyan)"/>
+    <text x="312" y="281" fill="#5f97a5" font-size="10.5">adopted only when meaning must endure</text>
+
+    <text x="881" y="330" text-anchor="middle" fill="#7b8593" font-size="11">trailers preserve scope,</text>
+    <text x="881" y="347" text-anchor="middle" fill="#7b8593" font-size="11">domains, and disposition</text>
+  </g>
+</svg>

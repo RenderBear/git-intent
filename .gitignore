@@ -1,0 +1,28 @@
+# Packaged skill bundles (build artifacts)
+*.skill
+dist/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local agent state — installs are symlinks, not repo content
+.claude/
+.cursor/
+.codex/
+!AGENTS.md
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# NOTE: .invariant/ is deliberately NOT ignored. Accepted domains and contracts,
+# architecture pointers, discoveries, and audits are reviewed repository state.
+# `.invariant/runtime/` creates its own ignore marker because it is local planning
+# state shared by linked worktrees and must also work before tracked Invariant state exists.
