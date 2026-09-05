@@ -29,16 +29,16 @@ The complete design is in [SPEC.md](SPEC.md).
 
 ## Install
 
-Install Invariant as an isolated command:
+Install Invariant directly from its Git repository:
 
 ```bash
-uv tool install invariant-cli
+uv tool install git+https://github.com/RenderBear/invariant-cli.git
 ```
 
-Or install it into a Python environment:
+Or, from the root of a local checkout:
 
 ```bash
-python -m pip install invariant-cli
+uv tool install .
 ```
 
 Confirm the installation:
