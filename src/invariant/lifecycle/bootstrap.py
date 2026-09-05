@@ -22,7 +22,7 @@ AUDIT_PROMPT = (
 @dataclass(frozen=True)
 class BootstrapSettings:
     coding_agents: tuple[str, ...] = ("codex", "claude")
-    resolution: str = "assisted"
+    resolution: str = "auto"
     execution: str = "auto"
     integration_branch: str = "auto"
     push_remote: str = "off"

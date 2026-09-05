@@ -91,7 +91,7 @@ def _from_raw(
         )
     selected_agents = set(agents_raw)
     coding_agents = tuple(item for item in ("codex", "claude") if item in selected_agents)
-    resolution = raw.get("resolution", "assisted")
+    resolution = raw.get("resolution", "auto")
     if resolution not in {"assisted", "auto"}:
         raise InvariantError(
             f"Invariant: .invariant/config.yml has invalid resolution '{resolution}' (use assisted or auto)"
@@ -153,7 +153,7 @@ def resolve(repo: Path) -> Config:
         return _finish(
             repo,
             ("codex", "claude"),
-            "assisted",
+            "auto",
             "auto",
             branch,
             "auto",
@@ -183,7 +183,7 @@ def resolve_at(repo: Path, ref: str, integration_branch: str) -> Config:
         return _finish(
             repo,
             ("codex", "claude"),
-            "assisted",
+            "auto",
             "auto",
             integration_branch,
             "auto",
@@ -245,7 +245,7 @@ def initialize(
     document: dict[str, Any] = {
         "version": 1,
         "coding_agents": list(coding_agents if coding_agents is not None else ("codex", "claude")),
-        "resolution": resolution if resolution is not None else "assisted",
+        "resolution": resolution if resolution is not None else "auto",
         "execution": execution if execution is not None else "auto",
         "integration_branch": branch_setting,
         "push_remote": push_remote if push_remote is not None else "off",

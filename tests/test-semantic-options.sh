@@ -162,6 +162,9 @@ if git -C "$fixture" show-ref --verify -q "refs/heads/$branch"; then
 fi
 ok "outcome review binds stable acceptance IDs to the exact candidate tree"
 
+(cd "$fixture" && "$cli" config set resolution assisted >/dev/null)
+git -C "$fixture" add .invariant/config.yml
+git -C "$fixture" commit -qm "require assisted semantic resolution"
 if out=$(cd "$fixture" && "$cli" evidence discovery capture missing-adr \
   --observation "No ADR describes the source boundary." \
   --searched docs/adr --path src --domain source --related task:document-source-boundary 2>&1); then

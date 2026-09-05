@@ -66,7 +66,7 @@ Use every safe default without prompts:
 invariant init --defaults
 ```
 
-This selects both Codex and Claude Code, assisted semantic resolution, automatic lifecycle
+This selects both Codex and Claude Code, agent-led semantic resolution, automatic lifecycle
 execution, the current branch as the automatic integration target, local-only landing, and the
 optional lifecycle bookends disabled. Initialization does not run an audit; after setup it prints a
 recommended natural-language request for your coding agent to conduct a full audit and establish
@@ -125,7 +125,7 @@ Its effective defaults are:
 ```yaml
 version: 1
 coding_agents: [codex, claude]
-resolution: assisted
+resolution: auto
 execution: auto
 integration_branch: auto
 push_remote: off
@@ -140,7 +140,7 @@ Settings:
 |---|---|---|---|
 | `version` | `1` | `1` | Configuration schema version. It is fixed and not user-configurable. |
 | `coding_agents` | `[codex, claude]` | Any non-empty subset of `codex`, `claude` | Which root agent instruction files receive the managed Invariant workflow during initialization. |
-| `resolution` | `assisted` | `assisted`, `auto` | Whether consequential semantic ambiguity needs a human or may be settled by an agent acting within accepted authority. |
+| `resolution` | `auto` | `assisted`, `auto` | Whether consequential semantic ambiguity needs a human or may be settled by an agent acting within accepted authority. |
 | `execution` | `auto` | `auto`, `assisted` | Whether state-changing lifecycle transitions run immediately or pause for explicit continuation. |
 | `integration_branch` | `auto` | `auto`, local branch name | The branch that receives verified landings. `auto` uses the current branch when a task begins; a name fixes one local convergence target. |
 | `push_remote` | `off` | `off`, `on` | Whether a successful landing stays local or pushes the exact verified commit to the integration branch's existing upstream. |

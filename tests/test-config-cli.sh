@@ -21,7 +21,7 @@ die() { echo "not ok - $1"; exit 1; }
 defaults=$(cd "$fixture" && "$cli" config show)
 printf '%s\n' "$defaults" | grep -q '^version: 1$' || die "default schema version is hidden"
 printf '%s\n' "$defaults" | grep -q '^coding_agents: codex, claude$' || die "default coding agents are wrong"
-printf '%s\n' "$defaults" | grep -q '^resolution: assisted$' || die "resolution default is wrong"
+printf '%s\n' "$defaults" | grep -q '^resolution: auto$' || die "resolution default is wrong"
 printf '%s\n' "$defaults" | grep -q '^execution: auto$' || die "execution default is wrong"
 printf '%s\n' "$defaults" | grep -q '^integration_branch: auto$' || die "branch setting default is wrong"
 printf '%s\n' "$defaults" | grep -q '^integration_branch_resolved: main$' || die "automatic branch resolution is wrong"

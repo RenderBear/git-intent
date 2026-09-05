@@ -63,10 +63,9 @@ def _select(
 
 def _logo() -> None:
     print()
-    print(f"{_color('1;35', '   /\\')}     {_color('1', 'INVARIANT')}")
-    print(f"{_color('1;35', '  /  \\')}    {_color('2', 'Durable intent for agentic work')}")
-    print(_color("1;35", "  \\  /"))
-    print(_color("1;35", "   \\/"))
+    print(_color("1;35", "╭───╮"))
+    print(f"{_color('1;35', '│ ≡ │')}  {_color('1', 'INVARIANT')}")
+    print(f"{_color('1;35', '╰───╯')}  {_color('2', 'Durable intent for agentic work')}")
 
 
 def _interactive(repo) -> bootstrap.BootstrapSettings:
@@ -89,12 +88,20 @@ def _interactive(repo) -> bootstrap.BootstrapSettings:
     }[agent_choice]
     resolution = _select(
         "Semantic decisions",
-        "Who approves new or changed architectural intent?",
+        "Who should resolve new or changed architectural intent?",
         (
-            ("assisted", "Human review", "Ask before recording or resolving semantic findings."),
-            ("auto", "Agent autonomy", "Proceed when accepted repository authority is sufficient."),
+            (
+                "auto",
+                "Agent resolves",
+                "Proceed when the request and accepted repository authority are sufficient.",
+            ),
+            (
+                "assisted",
+                "Human review",
+                "Ask before recording or resolving semantic findings.",
+            ),
         ),
-        "assisted",
+        "auto",
     )
     execution = _select(
         "Git lifecycle",
@@ -183,7 +190,7 @@ def _summary(lines: list[str], *, show_logo: bool) -> None:
         "codex": "Codex",
         "claude": "Claude Code",
     }.get(agents, agents)
-    resolution = "Human review" if value("RESOLUTION") == "assisted" else "Agent autonomy"
+    resolution = "Human review" if value("RESOLUTION") == "assisted" else "Agent resolves"
     execution = "Automatic" if value("EXECUTION") == "auto" else "Confirm first"
     branch = value("INTEGRATION-BRANCH")
     if value("INTEGRATION-BRANCH-SETTING") == "auto":
@@ -224,7 +231,7 @@ def _summary(lines: list[str], *, show_logo: bool) -> None:
     print("Ask your coding agent:\n")
     prompt = value("PROMPT")
     recommendation = textwrap.fill(
-        f'“{prompt}”', width=76, initial_indent="  ", subsequent_indent="  "
+        prompt, width=76, initial_indent="  ", subsequent_indent="  "
     )
     print(_color("36", recommendation))
 

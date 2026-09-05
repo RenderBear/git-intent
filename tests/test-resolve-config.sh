@@ -16,7 +16,7 @@ git -C "$fixture" add f
 git -C "$fixture" commit -qm seed
 
 default=$(cd "$fixture" && sh "$resolver")
-[ "$default" = "resolution: assisted
+[ "$default" = "resolution: auto
 execution: auto
 integration_branch: trunk
 source: default
@@ -51,7 +51,7 @@ cat >"$fixture/.invariant/config.yml" <<EOF
 version: 1
 EOF
 omitted=$(cd "$fixture" && sh "$resolver")
-[ "$omitted" = "resolution: assisted
+[ "$omitted" = "resolution: auto
 execution: auto
 integration_branch: trunk
 source: .invariant/config.yml

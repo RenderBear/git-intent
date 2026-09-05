@@ -249,7 +249,7 @@ Tracked repository configuration remains small:
 ```yaml
 version: 1
 coding_agents: [codex, claude]
-resolution: assisted
+resolution: auto
 execution: auto
 integration_branch: auto
 push_remote: off
@@ -302,7 +302,7 @@ automatically. With assisted resolution and automatic execution, the agent compl
 presents one consolidated proposal, and—after approval—runs the resulting repository changes
 through the normal task lifecycle without routine Git prompts.
 
-Absence means both supported coding agents, `resolution: assisted`, `execution: auto`,
+Absence means both supported coding agents, `resolution: auto`, `execution: auto`,
 `integration_branch: auto`, `push_remote: off`, and disabled optional lifecycle bookends. Automatic
 execution is the ergonomic default; it does not remove briefing, branch isolation, exact-tree
 verification, or atomic landing. Neither execution mode weakens validation or grants external

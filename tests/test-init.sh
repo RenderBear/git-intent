@@ -33,7 +33,7 @@ grep -q '^coding_agents:$' "$defaults/.invariant/config.yml" || die "default ini
 grep -q '^- codex$' "$defaults/.invariant/config.yml" || die "default init omitted Codex"
 grep -q '^- claude$' "$defaults/.invariant/config.yml" || die "default init omitted Claude"
 grep -q '^integration_branch: auto$' "$defaults/.invariant/config.yml" || die "default init did not preserve automatic integration selection"
-grep -q '^resolution: assisted$' "$defaults/.invariant/config.yml" || die "default init did not use assisted resolution"
+grep -q '^resolution: auto$' "$defaults/.invariant/config.yml" || die "default init did not use automatic resolution"
 grep -q "^push_remote: 'off'$" "$defaults/.invariant/config.yml" || die "default init enabled publication"
 grep -q '^# Existing Codex instructions$' "$defaults/AGENTS.md" || die "Codex setup replaced existing instructions"
 [ "$(grep -c '^<!-- invariant:workflow:start -->$' "$defaults/AGENTS.md")" -eq 1 ] || die "Codex workflow marker is not singular"
@@ -52,7 +52,7 @@ interactive="$fixtures/interactive"
 new_repo "$interactive" trunk
 git -C "$interactive" branch stable
 answers='claude
-auto
+assisted
 assisted
 named
 stable
@@ -62,7 +62,7 @@ out=$(printf '%s\n' "$answers" | (cd "$interactive" && "$cli" init))
 grep -q '^coding_agents:$' "$interactive/.invariant/config.yml" || die "interactive init omitted coding agents"
 grep -q '^- claude$' "$interactive/.invariant/config.yml" || die "interactive init did not select Claude"
 if grep -q '^- codex$' "$interactive/.invariant/config.yml"; then die "interactive init selected Codex unexpectedly"; fi
-grep -q '^resolution: auto$' "$interactive/.invariant/config.yml" || die "interactive resolution choice was lost"
+grep -q '^resolution: assisted$' "$interactive/.invariant/config.yml" || die "interactive resolution choice was lost"
 grep -q '^execution: assisted$' "$interactive/.invariant/config.yml" || die "interactive execution choice was lost"
 grep -q '^integration_branch: stable$' "$interactive/.invariant/config.yml" || die "named integration branch was lost"
 grep -q "^push_remote: 'on'$" "$interactive/.invariant/config.yml" || die "interactive publication choice was lost"
