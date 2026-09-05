@@ -9,7 +9,7 @@ def read(name: str) -> str:
 
 
 def agent_workflow() -> str:
-    return "\n\n".join((read("workflow"), read("human-ergonomics"), read("protocol-reference")))
+    return "\n\n".join((read("workflow"), read("protocol-reference")))
 
 
 def for_stage(stage: str, *, intent_expansion: bool, outcome_review: bool) -> str:

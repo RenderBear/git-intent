@@ -10,6 +10,7 @@ from invariant.mechanics.documents import dump_yaml, load_yaml
 
 
 DEFAULT_GOAL = "Establish the repository's initial durable governance from a causal audit."
+TASK_ID_HELP = "caller-chosen ID for this initial-governance session"
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -20,18 +21,18 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     commands = parser.add_subparsers(dest="initial_governance_command", required=True)
 
     begin = commands.add_parser("begin", help="Open the managed branch before creating an audit")
-    begin.add_argument("task_id")
+    begin.add_argument("task_id", help=TASK_ID_HELP)
     begin.add_argument("--goal", default=DEFAULT_GOAL)
     begin.set_defaults(_handler=_begin, _command="initial-governance.begin")
 
     save = commands.add_parser("audit-save", help="Save the full audit inside the managed session")
-    save.add_argument("task_id")
+    save.add_argument("task_id", help=TASK_ID_HELP)
     save.add_argument("audit_label")
     save.add_argument("--input", type=Path, required=True)
     save.set_defaults(_handler=_audit_save, _command="initial-governance.audit-save")
 
     adopt = commands.add_parser("adopt", help="Select ready audit findings for governance adoption")
-    adopt.add_argument("task_id")
+    adopt.add_argument("task_id", help=TASK_ID_HELP)
     selection = adopt.add_mutually_exclusive_group(required=True)
     selection.add_argument("--all-ready", action="store_true")
     selection.add_argument("--finding", action="append")
@@ -40,11 +41,11 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     defer = commands.add_parser(
         "defer", help="Land the saved audit without adopting durable governance"
     )
-    defer.add_argument("task_id")
+    defer.add_argument("task_id", help=TASK_ID_HELP)
     defer.set_defaults(_handler=_defer, _command="initial-governance.defer")
 
     status = commands.add_parser("status", help="Show the governance phase and managed task state")
-    status.add_argument("task_id")
+    status.add_argument("task_id", help=TASK_ID_HELP)
     status.set_defaults(_handler=_status, _command="initial-governance.status")
 
 

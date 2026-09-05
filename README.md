@@ -104,34 +104,17 @@ prepares the semantic assessment, and asks Invariant to verify and land the resu
 needs authority or encounters a real conflict, the agent returns to the human with the decision—not
 with a request to investigate the code manually. No Invariant-specific model plugin is required.
 
-### CLI surface
+### CLI basics
 
-The CLI exists so every coding harness, CI job, and IDE can use the same local, model-independent
-protocol. Detailed arguments such as paths, domains, interfaces, governance references, and
-candidate assessments are integration fields for those callers; they are not concepts a human is
-expected to memorize or enter during normal development.
+The detailed CLI is an integration surface for coding agents, harnesses, CI jobs, and IDEs. Humans
+normally need only initialization, status, and configuration commands.
 
-Humans may use the small operational surface directly—for example, `invariant status`,
-`invariant status <task-id>`, or `invariant task continue <task-id> --apply`. Harnesses should use
-compact `--format json` for the deeper command contract; add `--verbose` only when the duplicate
-text rendering is useful. Running `invariant` alone does not start an assistant; without a coding
-harness, it remains a deterministic repository and automation tool.
+A **task ID** is a short, caller-chosen name for one managed repository change, such as
+`fix-job-recovery`. The coding agent uses that same ID to connect the goal, work branch,
+verification, and landing; it is not something Invariant expects a human to discover.
 
-The protocol is self-describing:
-
-```bash
-invariant evidence audit schema
-invariant evidence audit example
-invariant task assessment schema
-invariant task assessment example
-invariant task assessment prepare <task-id>
-```
-
-Assessment preparation derives the exact candidate paths, domains established by the candidate,
-governance references, prospective tree, affected architecture reviews, and checks that will run.
-It reports unresolved semantic requirements together instead of revealing them one validation error
-at a time. The editable draft is stored in Git-local task runtime, so it does not dirty the candidate;
-after completing it, `invariant task finish <task-id>` uses that draft by default.
+See [CLI basics](docs/cli-basics.md) for human commands, a complete task example, initial-governance
+examples, and a map of the agent-facing command groups.
 
 ## Configure Invariant
 

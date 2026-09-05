@@ -138,5 +138,7 @@ def test_stage_guidance_remains_free_form_and_composable() -> None:
 
 def test_installed_agent_workflow_matches_portable_reference() -> None:
     example = (REPOSITORY / "AGENTS.example.md").read_text(encoding="utf-8")
-    fenced = example.split("```markdown\n", 1)[1].rsplit("\n```", 1)[0].strip()
+    fenced = example.split("````markdown\n", 1)[1].rsplit("\n````", 1)[0].strip()
     assert fenced == guidance.agent_workflow()
+    assert "# Human ergonomics" not in guidance.agent_workflow()
+    assert "### Start or resume a task" in guidance.agent_workflow()

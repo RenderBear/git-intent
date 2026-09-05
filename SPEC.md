@@ -211,6 +211,10 @@ evidence-only categories; confirms that the audit is saved; and offers deeper in
 adoption of all ready findings, adoption of selected findings, or deferral. Raw validation failures
 remain available for diagnostics but are not treated as the human interaction design.
 
+Human-translation guidance is package-owned and composed into stage-specific `task guidance`
+output. It is not copied into persistent `AGENTS.md` or `CLAUDE.md` managed blocks; those blocks
+contain only the durable lifecycle rules and agent protocol reference needed to invoke that guidance.
+
 ## 5. State and authority
 
 Tracked repository state remains:
@@ -459,6 +463,11 @@ imply that every task needs a detailed specification.
 The executable is named `invariant`. Lifecycle and mechanical commands are composable and
 non-interactive. Repository bootstrap is the deliberate exception: `invariant init` is interactive,
 while `invariant init --defaults` is deterministic and non-interactive.
+
+A task ID is a caller-chosen, repository-local identifier for one managed change. It begins with an
+alphanumeric character, may contain alphanumerics, `.`, `_`, and `-`, and connects the task's goal,
+receipt, generated branch, verification, and landing. For example, `fix-job-recovery` is the task ID
+in `invariant task begin fix-job-recovery --goal "Restore active jobs after restart"`.
 
 Initial command groups are:
 

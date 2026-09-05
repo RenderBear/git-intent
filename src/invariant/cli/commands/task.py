@@ -12,12 +12,18 @@ from invariant.mechanics.documents import dump_yaml
 from invariant.semantics import schemas
 
 
+TASK_ID_HELP = (
+    "caller-chosen ID for one managed repository change "
+    "(letters, numbers, dot, underscore, and hyphen)"
+)
+
+
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     parser = subparsers.add_parser("task", help="Manage the fixed repository task lifecycle")
     commands = parser.add_subparsers(dest="task_command", required=True)
 
     begin = commands.add_parser("begin")
-    begin.add_argument("task_id")
+    begin.add_argument("task_id", help=TASK_ID_HELP)
     begin.add_argument("--goal", required=True)
     begin.add_argument(
         "--boundary",
@@ -33,11 +39,11 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     begin.set_defaults(_handler=_begin, _command="task.begin")
 
     status = commands.add_parser("status")
-    status.add_argument("task_id")
+    status.add_argument("task_id", help=TASK_ID_HELP)
     status.set_defaults(_handler=_status, _command="task.status")
 
     check = commands.add_parser("check")
-    check.add_argument("task_id")
+    check.add_argument("task_id", help=TASK_ID_HELP)
     goal = check.add_mutually_exclusive_group(required=True)
     goal.add_argument("--goal")
     goal.add_argument("--goal-digest")
@@ -48,7 +54,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     check.set_defaults(_handler=_check, _command="task.check")
 
     finish = commands.add_parser("finish")
-    finish.add_argument("task_id")
+    finish.add_argument("task_id", help=TASK_ID_HELP)
     finish.add_argument(
         "--assessment",
         help="assessment file (defaults to the Git-local draft from task assessment prepare)",
@@ -58,16 +64,16 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     finish.set_defaults(_handler=_finish, _command="task.finish")
 
     continuation = commands.add_parser("continue")
-    continuation.add_argument("task_id")
+    continuation.add_argument("task_id", help=TASK_ID_HELP)
     continuation.add_argument("--apply", action="store_true")
     continuation.set_defaults(_handler=_continue, _command="task.continue")
 
     invalidate = commands.add_parser("invalidate")
-    invalidate.add_argument("task_id")
+    invalidate.add_argument("task_id", help=TASK_ID_HELP)
     invalidate.set_defaults(_handler=_invalidate, _command="task.invalidate")
 
     guide = commands.add_parser("guidance")
-    guide.add_argument("task_id")
+    guide.add_argument("task_id", help=TASK_ID_HELP)
     guide.set_defaults(_handler=_guidance, _command="task.guidance")
 
     assessment = commands.add_parser("assessment", help="Inspect or prepare task assessments")
@@ -83,7 +89,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     assessment_prepare = assessments.add_parser(
         "prepare", help="Generate a candidate-bound assessment draft and missing requirements"
     )
-    assessment_prepare.add_argument("task_id")
+    assessment_prepare.add_argument("task_id", help=TASK_ID_HELP)
     assessment_prepare.add_argument("--output")
     assessment_prepare.set_defaults(
         _handler=_assessment_prepare, _command="task.assessment.prepare"

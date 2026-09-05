@@ -11,7 +11,11 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     parser = subparsers.add_parser(
         "status", help="Show repository health, active tasks, and the next useful command"
     )
-    parser.add_argument("task_id", nargs="?")
+    parser.add_argument(
+        "task_id",
+        nargs="?",
+        help="optional caller-chosen ID of one active managed repository change",
+    )
     parser.set_defaults(_handler=_status, _command="status")
 
 

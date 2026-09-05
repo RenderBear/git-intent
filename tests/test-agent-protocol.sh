@@ -22,6 +22,10 @@ new_repo() {
   git -C "$destination" config commit.gpgsign false
 }
 
+task_help=$($cli task begin --help)
+printf '%s\n' "$task_help" | grep -q 'caller-chosen ID for one managed repository change' ||
+  die "task help did not explain the task ID"
+
 governance="$fixtures/governance"
 new_repo "$governance"
 printf 'seed\n' >"$governance/app.txt"

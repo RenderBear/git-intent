@@ -70,7 +70,10 @@ grep -q '^  intent_expansion: true$' "$interactive/.invariant/config.yml" || die
 grep -q '^  outcome_review: true$' "$interactive/.invariant/config.yml" || die "custom post-step choice was lost"
 [ ! -e "$interactive/AGENTS.md" ] || die "Claude-only setup created AGENTS.md"
 grep -q '^## Invariant lifecycle$' "$interactive/CLAUDE.md" || die "Claude-only workflow was not installed"
-grep -q '^# Human ergonomics$' "$interactive/CLAUDE.md" || die "human ergonomics guidance was not installed"
+grep -q '^#### Human authority$' "$interactive/CLAUDE.md" || die "installed workflow was not structured"
+if grep -q '^# Human ergonomics$' "$interactive/CLAUDE.md"; then
+  die "stage-specific human ergonomics were persisted in agent instructions"
+fi
 printf '%s\n' "$out" | grep -q '^◆ Integration branch$' || die "interactive init did not explain integration branch"
 printf '%s\n' "$out" | grep -q 'Resolve the target when each task begins' || die "automatic branch behavior was not explained"
 printf '%s\n' "$out" | grep -q '^◆ Intent shaping$' || die "interactive init split the optional intent steps"
