@@ -62,8 +62,11 @@ def _select(
 
 
 def _logo() -> None:
-    print(f"\n{_color('1;35', '◈ INVARIANT')}")
-    print(_color("2", "  Durable intent for agentic work"))
+    print()
+    print(f"{_color('1;35', '   /\\')}     {_color('1', 'INVARIANT')}")
+    print(f"{_color('1;35', '  /  \\')}    {_color('2', 'Durable intent for agentic work')}")
+    print(_color("1;35", "  \\  /"))
+    print(_color("1;35", "   \\/"))
 
 
 def _interactive(repo) -> bootstrap.BootstrapSettings:
@@ -129,27 +132,27 @@ def _interactive(repo) -> bootstrap.BootstrapSettings:
     )
     intent_shaping = _select(
         "Intent shaping",
-        "Should Invariant add custom steps around the coding agent's normal understanding?",
+        "How should Invariant shape and review task intent?",
         (
             (
                 "model",
-                "Model-led workflow",
-                "Rely on the model's own understanding and normal candidate review.",
+                "Model's own understanding",
+                "Use the coding agent's normal workflow without extra intent steps.",
             ),
             (
                 "pre",
-                "Optional custom pre-step",
-                "Define outcomes, acceptance criteria, and constraints before implementation.",
+                "Intent expansion",
+                "Before implementation, make outcomes, acceptance criteria, and constraints explicit.",
             ),
             (
                 "post",
-                "Optional custom post-step",
-                "Assess the goal against the exact candidate before landing.",
+                "Outcome review",
+                "Before landing, assess the exact candidate against the goal.",
             ),
             (
                 "both",
-                "Custom pre-step and post-step",
-                "Define intent up front and assess it against the exact candidate.",
+                "Both expansion and review",
+                "Expand intent before implementation, then assess the exact candidate before landing.",
             ),
         ),
         "model",
@@ -187,10 +190,10 @@ def _summary(lines: list[str], *, show_logo: bool) -> None:
         branch = f"{branch} (current branch)"
     publication = "Local only" if value("PUSH-REMOTE") == "off" else "Existing upstream"
     shaping = {
-        (False, False): "Model-led",
-        (True, False): "Custom pre-step",
-        (False, True): "Custom post-step",
-        (True, True): "Custom pre-step and post-step",
+        (False, False): "Model's own understanding",
+        (True, False): "Intent expansion",
+        (False, True): "Outcome review",
+        (True, True): "Both expansion and review",
     }[
         (
             value("INTENT-EXPANSION") == "on",

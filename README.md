@@ -144,8 +144,8 @@ Settings:
 | `execution` | `auto` | `auto`, `assisted` | Whether state-changing lifecycle transitions run immediately or pause for explicit continuation. |
 | `integration_branch` | `auto` | `auto`, local branch name | The branch that receives verified landings. `auto` uses the current branch when a task begins; a name fixes one local convergence target. |
 | `push_remote` | `off` | `off`, `on` | Whether a successful landing stays local or pushes the exact verified commit to the integration branch's existing upstream. |
-| `lifecycle.intent_expansion` | `false` | `false`, `true` | Optional custom pre-step: define explicit outcomes, acceptance criteria, and constraints before implementation. Set with `off` or `on` through the CLI. |
-| `lifecycle.outcome_review` | `false` | `false`, `true` | Optional custom post-step: assess the goal or expanded outcomes against the exact candidate before landing. Set with `off` or `on` through the CLI. |
+| `lifecycle.intent_expansion` | `false` | `false`, `true` | Intent expansion before implementation: make outcomes, acceptance criteria, and constraints explicit. Set with `off` or `on` through the CLI. |
+| `lifecycle.outcome_review` | `false` | `false`, `true` | Outcome review before landing: assess the goal or expanded outcomes against the exact candidate. Set with `off` or `on` through the CLI. |
 
 All selections live in `.invariant/config.yml`. Edit that tracked file directly or inspect and update
 validated settings through the CLI:

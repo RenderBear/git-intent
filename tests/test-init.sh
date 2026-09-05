@@ -42,7 +42,7 @@ grep -q '^# Existing Claude instructions$' "$defaults/CLAUDE.md" || die "Claude 
 grep -q '^@AGENTS.md$' "$defaults/CLAUDE.md" || die "Claude does not import the shared workflow"
 printf '%s\n' "$out" | grep -q '^Recommended next step$' || die "init omitted the audit recommendation"
 printf '%s\n' "$out" | grep -q 'Conduct a full repository audit with Invariant\.' || die "init omitted the agent prompt"
-printf '%s\n' "$out" | grep -q 'Intent shaping.*Model-led' || die "default intent shaping was not explained"
+printf '%s\n' "$out" | grep -q "Intent shaping.*Model's own understanding" || die "default intent shaping was not explained"
 [ ! -e "$defaults/.invariant/DOMAINS.yml" ] || die "init manufactured empty domains"
 [ ! -e "$defaults/.invariant/CONTRACTS.yml" ] || die "init manufactured empty contracts"
 [ ! -e "$defaults/.invariant/audits" ] || die "init ran an audit"
