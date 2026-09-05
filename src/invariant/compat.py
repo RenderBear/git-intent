@@ -74,7 +74,7 @@ def _config(_: list[str]) -> list[str]:
     # Preserve the legacy resolver's stable six-line contract. The public CLI
     # exposes the schema version, remote policy, and lifecycle switches as well.
     return [
-        f"resolution: {resolved.resolution}",
+        f"authority: {resolved.authority}",
         f"execution: {resolved.execution}",
         f"integration_branch: {resolved.integration_branch}",
         f"source: {resolved.source}",
@@ -188,11 +188,11 @@ def _audit(argv: list[str]) -> list[str]:
             raise UsageError("Invariant: scoped audit requires --paths")
         return audit.frame(repo, "scope", values["--paths"])
     if command == "full":
-        positional, _, flags = _parse(rest, flags=("--assisted", "--auto"))
-        _exact(positional, 0, "usage: audit-support.sh full --assisted|--auto")
+        positional, _, flags = _parse(rest, flags=("--human", "--agent"))
+        _exact(positional, 0, "usage: audit-support.sh full --human|--agent")
         if len(flags) != 1:
-            raise UsageError("Invariant: full audit requires exactly one resolution mode")
-        return audit.full(repo, "auto" if "--auto" in flags else "assisted")
+            raise UsageError("Invariant: full audit requires exactly one authority mode")
+        return audit.full(repo, "agent" if "--agent" in flags else "human")
     if command == "fresh":
         if len(rest) not in {1, 2}:
             raise UsageError("usage: audit-support.sh fresh <audit> [head]")

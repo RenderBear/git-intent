@@ -371,13 +371,6 @@ def finish(
     if assessment.boundary.disposition == "recorded" and not assessment.governance:
         raise InvariantError("Invariant: a recorded boundary requires governance references")
 
-    receipts.check_receipt(
-        repo,
-        task,
-        goal_digest=assessment.goal_digest,
-        interfaces=assessment.interfaces,
-        domains=assessment.domains,
-    )
     resolved = _target_config(repo, target)
     if resolved.integration_branch != target:
         raise Blocked(
@@ -386,6 +379,35 @@ def finish(
     branch_ref, actual_paths = _actual_paths(repo, active_stage, base, branch)
     if not actual_paths:
         raise Blocked("Invariant: task candidate contains no changes")
+    scope = receipt.get("scope") if isinstance(receipt.get("scope"), dict) else {}
+    cached_domain_values = scope.get("domains", [])
+    cached_domains = (
+        {str(item) for item in cached_domain_values}
+        if isinstance(cached_domain_values, list)
+        else set()
+    )
+    expanded_domains = set(assessment.domains) - cached_domains
+    domains_at_base = (
+        {str(row.get("id")) for row in governance.domains(repo, base) if row.get("id")}
+        if base != "unborn"
+        else set()
+    )
+    invalid_expansion = expanded_domains.intersection(domains_at_base)
+    establishing_domains = ".invariant/DOMAINS.yml" in actual_paths
+    if expanded_domains and (
+        invalid_expansion
+        or not establishing_domains
+        or assessment.boundary.disposition != "recorded"
+    ):
+        domain = sorted(invalid_expansion or expanded_domains)[0]
+        raise Blocked(f"STALE: domain scope expanded to {domain}", code="stale_receipt")
+    receipts.check_receipt(
+        repo,
+        task,
+        goal_digest=assessment.goal_digest,
+        interfaces=assessment.interfaces,
+        domains=[domain for domain in assessment.domains if domain in cached_domains],
+    )
     for path in actual_paths:
         if not _path_covered(path, assessment.paths):
             raise Blocked(
@@ -455,6 +477,17 @@ def finish(
         _complete_task(repo, task, active_stage, branch, target)
         exc.lines.extend([f"TASK: {task}", "STATUS: completed-locally"])
         raise
+    except Blocked as exc:
+        exc.lines.extend(
+            [
+                f"TASK: {task}",
+                f"STATUS: {active_stage}",
+                "RECOVERY: receipt and task branch retained; integration target unchanged",
+                f"NEXT: inspect with 'invariant task status {task}', correct the candidate or "
+                "assessment, then rerun task finish",
+            ]
+        )
+        raise
     _complete_task(repo, task, active_stage, branch, target)
     return [*output, f"TASK: {task}", "STATUS: completed"]
 
@@ -523,18 +556,33 @@ def task_guidance(repo: Path, task: str) -> list[str]:
     intent = receipt.get("intent") if isinstance(receipt.get("intent"), dict) else {}
     expansion, review = _options(receipt)
     domains = [str(item) for item in scope.get("domains", [])]
-    paths = [str(item) for item in scope.get("paths", [])]
+    initial_paths = [str(item) for item in scope.get("paths", [])]
     interfaces = [str(item) for item in scope.get("interfaces", [])]
     captured_head = str(receipt.get("integration_head") or "")
+    stage = str(lifecycle.get("stage") or "briefed")
+    branch = str(lifecycle.get("branch") or "")
+    candidate_paths: list[str] = []
+    if stage == "implementing" and branch and captured_head not in {"", "unborn"}:
+        branch_ref = git.resolve(repo, f"refs/heads/{branch}")
+        if branch_ref:
+            candidate_paths.extend(git.changed_paths(repo, captured_head, branch_ref))
+        worktree = git.worktree_for_branch(repo, branch)
+        if worktree:
+            candidate_paths.extend(git.changed_paths(worktree))
+    elif stage == "implementing-unborn":
+        candidate_paths.extend(git.changed_paths(repo))
+    candidate_paths = sorted(set(candidate_paths))
+    paths = candidate_paths or initial_paths
+    path_basis = "current candidate" if candidate_paths else "initial scope"
     accepted_at = None if captured_head in {"", "unborn"} else captured_head
     output = [
         "# Active task context",
         "",
         f"Task: {task}",
-        f"Stage: {lifecycle.get('stage') or 'briefed'}",
+        f"Stage: {stage}",
         f"Boundary: {intent.get('boundary') or 'unknown'}",
         f"Accepted ground: {captured_head or 'unknown'}",
-        f"Paths: {', '.join(paths) or 'none selected'}",
+        f"Paths ({path_basis}): {', '.join(paths) or 'none selected'}",
         f"Interfaces: {', '.join(interfaces) or 'none selected'}",
         f"Domains: {', '.join(domains) or 'none selected'}",
     ]

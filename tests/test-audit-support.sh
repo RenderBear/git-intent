@@ -3,9 +3,9 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-audit="$root/skills/intent-audit/scripts/audit-support.sh"
-validator="$root/skills/intent-brief/scripts/validate-state.sh"
+cli="$root/bin/invariant"
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/invariant-audit-test.XXXXXX")
+findings="$fixture/audit-findings.yml"
 cleanup() { rm -rf "$fixture"; }
 trap cleanup EXIT HUP INT TERM
 
@@ -34,30 +34,25 @@ tree=$(git -C "$fixture" rev-parse 'HEAD^{tree}')
 ok() { echo "ok - $1"; }
 die() { echo "not ok - $1"; exit 1; }
 
-out=$(cd "$fixture" && sh "$audit" scope --paths src/ocr/engine.txt)
+out=$(cd "$fixture" && "$cli" evidence audit scope --path src/ocr/engine.txt)
 printf '%s\n' "$out" | grep -q '^AUDIT: scope$' || die "scope frame missing"
 printf '%s\n' "$out" | grep -q "^GROUND: $ground$" || die "ground missing"
 printf '%s\n' "$out" | grep -q '^TREE: ' || die "tree missing"
 printf '%s\n' "$out" | grep -q '^DERIVED: area.src$' || die "derived mechanical scope missing"
 printf '%s\n' "$out" | grep -q '^DOMAIN: ocr.engine$' || die "existing semantic domain missing"
 printf '%s\n' "$out" | grep -q '^SOURCE: docs/architecture.md$' || die "architecture source missing"
-printf '%s\n' "$out" | grep -q '^NEXT: classify findings, then present one recommended transition and any required decision$' ||
+printf '%s\n' "$out" | grep -q "^NEXT: investigate and classify findings, then save the completed audit with 'invariant evidence audit save'$" ||
   die "directed audit transition missing"
 printf '%s\n' "$out" | grep -q '^routes:' && die "audit still proposes routes"
 ok "scoped audit emits causal evidence without inventing semantic records"
 
-out=$(cd "$fixture" && sh "$audit" full --auto)
-printf '%s\n' "$out" | grep -q '^RESOLUTION: auto$' || die "full audit resolution missing"
+out=$(cd "$fixture" && "$cli" evidence audit full)
+printf '%s\n' "$out" | grep -q '^AUTHORITY: agent$' || die "full audit authority missing"
 printf '%s\n' "$out" | grep -q '^BOUNDARY: area.src src$' || die "full audit map missing"
-ok "explicit full mode uses assisted or auto resolution vocabulary"
+ok "full audit exposes agent or human authority vocabulary"
 
-cat >"$fixture/.invariant/audits/ocr.yml" <<EOF
+cat >"$findings" <<'EOF'
 version: 1
-id: ocr
-ground: $ground
-tree: $tree
-mode: scope
-paths: [src/ocr]
 findings:
   - id: architecture-source
     summary: OCR behavior is described by the architecture document.
@@ -65,16 +60,37 @@ findings:
     proposed: discovery
     disposition: discovery-only
 EOF
-(cd "$fixture" && sh "$validator" >/dev/null) || die "tracked audit schema is invalid"
+out=$(cd "$fixture" && "$cli" evidence audit save ocr --mode scope --path src/ocr --input "$findings")
+printf '%s\n' "$out" | grep -q '^SAVED: .invariant/audits/ocr.yml$' || die "audit was not saved under audits"
+printf '%s\n' "$out" | grep -q '^NEXT: adopt every ready finding' || die "agent authority did not continue toward adoption"
+grep -q "^ground: $ground$" "$fixture/.invariant/audits/ocr.yml" || die "saved audit ground was not stamped"
+grep -q "^tree: $tree$" "$fixture/.invariant/audits/ocr.yml" || die "saved audit tree was not stamped"
+(cd "$fixture" && "$cli" state validate >/dev/null) || die "tracked audit schema is invalid"
 git -C "$fixture" add .invariant/audits/ocr.yml
 git -C "$fixture" commit -qm "record audit"
-out=$(cd "$fixture" && sh "$audit" fresh ocr)
+out=$(cd "$fixture" && "$cli" evidence fresh ocr)
 printf '%s\n' "$out" | grep -q '^FRESH:' || die "audit commit made its own evidence stale"
-ok "tracked audits can queue non-authoritative discoveries"
+ok "completed audits are stamped, validated, saved, and remain non-authoritative"
+
+(cd "$fixture" && "$cli" config set authority human >/dev/null)
+git -C "$fixture" add .invariant/config.yml
+git -C "$fixture" commit -qm "select human authority"
+cat >"$findings" <<'EOF'
+version: 1
+findings: []
+EOF
+out=$(cd "$fixture" && "$cli" evidence audit save human-review --mode scope --path ui --input "$findings")
+printf '%s\n' "$out" | grep -q '^AUTHORITY: human$' || die "saved audit omitted human authority"
+printf '%s\n' "$out" | grep -q 'adopt selected findings, or defer adoption$' ||
+  die "human audit did not offer clear investigation and adoption choices"
+git -C "$fixture" add .invariant/audits/human-review.yml
+git -C "$fixture" commit -qm "save human-review audit"
+ok "human authority receives review choices after the audit is safely persisted"
+rm -f "$findings"
 
 mkdir -p "$fixture/captured"
 printf 'captured\n' >"$fixture/captured/fact.txt"
-frame=$(cd "$fixture" && sh "$audit" scope --paths captured)
+frame=$(cd "$fixture" && "$cli" evidence audit scope --path captured)
 captured_ground=$(printf '%s\n' "$frame" | sed -n 's/^GROUND: //p')
 captured_tree=$(printf '%s\n' "$frame" | sed -n 's/^TREE: //p')
 cat >"$fixture/.invariant/audits/captured.yml" <<EOF
@@ -88,20 +104,20 @@ findings: []
 EOF
 git -C "$fixture" add captured .invariant/audits/captured.yml
 git -C "$fixture" commit -qm "record exact audited snapshot"
-out=$(cd "$fixture" && sh "$audit" fresh captured)
+out=$(cd "$fixture" && "$cli" evidence fresh captured)
 printf '%s\n' "$out" | grep -q '^FRESH: head matches the audited tree$' || die "captured work became stale when recorded"
 ok "freshness compares the exact audited tree, not a wall clock or only its ground"
 
 printf 'changed\n' >>"$fixture/ui/view.txt"
 git -C "$fixture" commit -qam "unrelated UI change"
-out=$(cd "$fixture" && sh "$audit" fresh ocr)
+out=$(cd "$fixture" && "$cli" evidence fresh ocr)
 printf '%s\n' "$out" | grep -q '^FRESH:' || die "unrelated change made audit stale"
 ok "unrelated descendants preserve audit freshness"
 
 printf 'changed\n' >>"$fixture/docs/architecture.md"
 git -C "$fixture" commit -qam "change audited evidence"
-if out=$(cd "$fixture" && sh "$audit" fresh ocr); then die "intersecting evidence change stayed fresh"; fi
+if out=$(cd "$fixture" && "$cli" evidence fresh ocr 2>&1); then die "intersecting evidence change stayed fresh"; fi
 printf '%s\n' "$out" | grep -q '^STALE: changed evidence docs/architecture.md$' || die "stale evidence is not identified"
 ok "intersecting descendant change makes audit stale"
 
-echo "6 audit checks passed"
+echo "7 audit checks passed"

@@ -302,6 +302,21 @@ def compile_affected(
     selected = set(expand_domains(repo, selected_domains, at))
     interface_set = set(interfaces)
     selected_contracts = _domain_contract_ids(repo, selected, at)
+    base_contracts = (
+        {str(row.get("id")): row for row in contracts(repo, base) if row.get("id")}
+        if base
+        else {}
+    )
+    base_domains = (
+        {str(row.get("id")): row for row in domains(repo, base) if row.get("id")}
+        if base
+        else {}
+    )
+    base_constraints = (
+        {str(row.get("id")): row for row in constraints(repo, base) if row.get("id")}
+        if base
+        else {}
+    )
     affected: dict[tuple[str, str], Affected] = {}
 
     def add(item: Affected) -> None:
@@ -317,7 +332,9 @@ def compile_affected(
         architecture = row.get("architecture", row.get("material"))
         verifies = tuple(refs(row.get("verifies")))
         level = ""
-        if (
+        if GOVERNANCE_FILES[1] in changed and base_contracts.get(identifier) != row:
+            level = "open"
+        if not level and (
             selected.intersection(between)
             or identifier in selected_contracts
             or path_hits(repo, changed, surfaces, base, tip)
@@ -344,6 +361,8 @@ def compile_affected(
         identifier = str(row.get("id", ""))
         for locator in architecture_refs(row.get("architecture", row.get("material"))):
             level = "bounded" if identifier in selected else ""
+            if GOVERNANCE_FILES[0] in changed and base_domains.get(identifier) != row:
+                level = "open"
             if path_hits(repo, changed, [locator], base, tip):
                 level = "open"
             if level:
@@ -363,7 +382,10 @@ def compile_affected(
         material = row.get("material")
         verifies = tuple(refs(row.get("verifies")))
         level = ""
-        if (
+        identifier = str(row.get("id", ""))
+        if GOVERNANCE_FILES[2] in changed and base_constraints.get(identifier) != row:
+            level = "open"
+        if not level and (
             selected.intersection(applies)
             or path_hits(repo, changed, surfaces, base, tip)
             or any(surface == f"interface:{name}" for name in interface_set for surface in surfaces)
@@ -375,7 +397,7 @@ def compile_affected(
             add(
                 Affected(
                     "constraint",
-                    str(row.get("id", "")),
+                    identifier,
                     level,
                     verifies,
                     str(row.get("assertion", "")),

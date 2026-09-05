@@ -35,21 +35,31 @@ are executable cross-domain promises. Audits and discoveries are evidence, never
 discovery records observation, causal basis, relevance, and disposition; it may resolve to
 architecture, governance, implementation, documentation, tests, follow-up work, or no artifact.
 
-For a full audit, investigate the repository without interrupting the human for code-level details,
-then present one consolidated semantic proposal. The audit itself is read-only. `resolution`
-controls approval of its adoption; `execution` controls the branch, verification, and landing of
-the approved repository changes.
+For an initial governance run, frame a full audit, investigate the repository without interrupting
+the human for code-level details, and save the completed findings with `invariant evidence audit
+save <id> --mode full --input <findings-file>`. The input is a version-1 mapping containing only
+`findings`; Invariant stamps the audit ID, mode, ground, and exact tree before writing it under
+`.invariant/audits/`. The audit remains evidence rather than authority.
+
+Under `authority: agent`, continue directly from the saved audit through adoption: establish the
+smallest justified domains and architecture, attach executable verifiers to relied-on contracts,
+preserve unresolved contradictions as discoveries, and land all repository changes through the
+managed task lifecycle. Do not insert a routine approval stop between audit and adoption. Under
+`authority: human`, stop after saving and summarizing the audit so the human can request deeper
+investigation, adopt all ready findings, adopt selected findings, or defer adoption. `execution`
+independently controls branch and landing pauses after the semantic decision has been made.
 
 When repository work exposes a potential discovery, assemble its paths, searched scope, evidence,
-and relevance without asking the human for code-level details. Under `resolution: assisted`, the
+and relevance without asking the human for code-level details. Under `authority: human`, the
 first capture or resolution attempt returns an approval proposal without mutating tracked state.
 Present the human with the observation and the decision it needs—not the internal fields—and rerun
-the same transition with `--apply` only after approval. Under `resolution: auto`, proceed when the
-request and accepted authority are sufficient.
+the same transition with `--apply` only after approval. Under `authority: agent`, proceed when the
+request and accepted repository authority are sufficient.
 
-`resolution: assisted | auto` controls who resolves semantic ambiguity. `execution: auto | assisted`
-controls lifecycle pauses; both preserve the same stages and checks. Neither setting authorizes
-deployment, artifact publication, destructive cleanup, or other external effects.
+`authority: agent | human` controls who defines repository-wide semantics and resolves conflicts.
+`execution: auto | assisted` controls lifecycle pauses; both preserve the same stages and checks.
+Neither setting authorizes deployment, artifact publication, destructive cleanup, or other external
+effects.
 
 Remote Git publication is a separate repository policy. It defaults to `push_remote: off`. When the
 accepted configuration and the verified candidate both keep it `on`, a successful landing pushes

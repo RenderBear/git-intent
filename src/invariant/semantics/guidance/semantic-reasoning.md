@@ -89,9 +89,9 @@ one behavior-level question: state the observation or inference, the accepted ru
 the practical consequence, and the recommended option. Do not ask the user to interpret internal
 IDs or approve a mechanical command.
 
-An automatic resolution setting permits judgment inside the current request and accepted
-repository authority. It does not create authority over security, money, production data, external
-effects, irreversible transitions, or contradictory user goals.
+Agent authority permits judgment inside the current request and accepted repository authority. It
+does not create authority over security, money, production data, external effects, irreversible
+transitions, or contradictory user goals.
 
 ## Resist ontology pressure
 

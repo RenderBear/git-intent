@@ -9,7 +9,7 @@ from invariant.mechanics import config, git, landing
 def _configuration(push_remote: str, branch: str = "main") -> config.Config:
     return config.Config(
         coding_agents=("codex", "claude"),
-        resolution="assisted",
+        authority="human",
         execution="auto",
         integration_branch=branch,
         integration_branch_setting=branch,

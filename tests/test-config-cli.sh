@@ -21,7 +21,7 @@ die() { echo "not ok - $1"; exit 1; }
 defaults=$(cd "$fixture" && "$cli" config show)
 printf '%s\n' "$defaults" | grep -q '^version: 1$' || die "default schema version is hidden"
 printf '%s\n' "$defaults" | grep -q '^coding_agents: codex, claude$' || die "default coding agents are wrong"
-printf '%s\n' "$defaults" | grep -q '^resolution: auto$' || die "resolution default is wrong"
+printf '%s\n' "$defaults" | grep -q '^authority: agent$' || die "authority default is wrong"
 printf '%s\n' "$defaults" | grep -q '^execution: auto$' || die "execution default is wrong"
 printf '%s\n' "$defaults" | grep -q '^integration_branch: auto$' || die "branch setting default is wrong"
 printf '%s\n' "$defaults" | grep -q '^integration_branch_resolved: main$' || die "automatic branch resolution is wrong"
@@ -41,11 +41,13 @@ if (cd "$fixture" && "$cli" config init >/dev/null 2>&1); then
 fi
 
 (cd "$fixture" && "$cli" config set execution assisted >/dev/null)
+(cd "$fixture" && "$cli" config set authority human >/dev/null)
 (cd "$fixture" && "$cli" config set coding_agents codex >/dev/null)
 (cd "$fixture" && "$cli" config set push_remote on >/dev/null)
 (cd "$fixture" && "$cli" config set lifecycle.intent_expansion on >/dev/null)
 updated=$(cd "$fixture" && "$cli" config show)
 printf '%s\n' "$updated" | grep -q '^execution: assisted$' || die "execution update was not resolved"
+printf '%s\n' "$updated" | grep -q '^authority: human$' || die "authority update was not resolved"
 printf '%s\n' "$updated" | grep -q '^coding_agents: codex$' || die "coding-agent update was not resolved"
 printf '%s\n' "$updated" | grep -q '^push_remote: on$' || die "push update was not resolved"
 printf '%s\n' "$updated" | grep -q '^intent_expansion: true$' || die "lifecycle update was not resolved"

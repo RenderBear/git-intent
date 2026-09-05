@@ -89,22 +89,22 @@ def _interactive(repo) -> bootstrap.BootstrapSettings:
         "codex": ("codex",),
         "claude": ("claude",),
     }[agent_choice]
-    resolution = _select(
-        "Semantic decisions",
-        "Who should resolve new or changed architectural intent?",
+    authority = _select(
+        "Semantic authority",
+        "Who may define repository-wide meaning, resolve contradictions, and approve durable intent?",
         (
             (
-                "auto",
-                "Agent resolves",
-                "Proceed when the request and accepted repository authority are sufficient.",
+                "agent",
+                "Agent authority",
+                "Run governance autonomously and escalate only decisions outside the granted scope.",
             ),
             (
-                "assisted",
+                "human",
                 "Human review",
-                "Ask before recording or resolving semantic findings.",
+                "Review concise findings and choose what to investigate, adopt, or defer.",
             ),
         ),
-        "auto",
+        "agent",
     )
     execution = _select(
         "Git lifecycle",
@@ -169,7 +169,7 @@ def _interactive(repo) -> bootstrap.BootstrapSettings:
     )
     return bootstrap.BootstrapSettings(
         coding_agents=coding_agents,
-        resolution=resolution,
+        authority=authority,
         execution=execution,
         integration_branch=integration_branch,
         push_remote=push_remote,
@@ -193,7 +193,7 @@ def _summary(lines: list[str], *, show_logo: bool) -> None:
         "codex": "Codex",
         "claude": "Claude Code",
     }.get(agents, agents)
-    resolution = "Human review" if value("RESOLUTION") == "assisted" else "Agent resolves"
+    authority = "Human review" if value("AUTHORITY") == "human" else "Agent authority"
     execution = "Automatic" if value("EXECUTION") == "auto" else "Confirm first"
     branch = value("INTEGRATION-BRANCH")
     if value("INTEGRATION-BRANCH-SETTING") == "auto":
@@ -214,7 +214,7 @@ def _summary(lines: list[str], *, show_logo: bool) -> None:
     print(f"\n{_color('1;32', '✓ Repository initialized')}\n")
     rows = (
         ("Coding agents", agent_label),
-        ("Semantic decisions", resolution),
+        ("Semantic authority", authority),
         ("Git lifecycle", execution),
         ("Integration", branch),
         ("Publication", publication),

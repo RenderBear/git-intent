@@ -103,6 +103,72 @@ def _evidence(repo: Path, value: str, label: str, at: str | None) -> list[str]:
     return [f"{label} evidence '{value}' must use repo:, commit:, interface:, task:, or url:"]
 
 
+def validate_audit(repo: Path, path: Path, raw: dict[str, Any], domain_ids: Iterable[str]) -> list[str]:
+    """Validate one persisted audit record without requiring it to be written first."""
+    failures: list[str] = []
+    relative = path.relative_to(repo).as_posix() if repo in path.parents else path.as_posix()
+    identifier = raw.get("id")
+    if raw.get("version") != 1:
+        failures.append(f"{relative} must declare version: 1")
+    if not _valid_id(identifier):
+        failures.append(f"{relative} invalid audit id '{identifier}'")
+    if path.stem != identifier:
+        failures.append(f"{relative} filename must be {identifier}.yml")
+    if raw.get("mode") not in {"scope", "full"}:
+        failures.append(f"{relative} invalid audit mode '{raw.get('mode')}'")
+    if "findings" not in raw or not isinstance(raw.get("findings"), list):
+        failures.append(f"{relative} missing findings")
+    ground, tree = raw.get("ground"), raw.get("tree")
+    if not ground:
+        failures.append(f"{relative} missing ground")
+    elif ground != "unborn" and not git.resolve(repo, str(ground)):
+        failures.append(f"{relative} ground '{ground}' does not resolve")
+    if not tree:
+        failures.append(f"{relative} missing tree")
+    elif tree != "empty" and git.resolve(repo, str(tree), "tree") is None:
+        failures.append(f"{relative} tree '{tree}' does not resolve")
+    known_domains = set(domain_ids)
+    for domain in refs(raw.get("domains")):
+        if domain not in known_domains:
+            failures.append(f"{relative} references missing domain '{domain}'")
+    paths = refs(raw.get("paths"))
+    if raw.get("mode") == "scope" and not paths:
+        failures.append(f"{relative} scoped audit requires at least one path")
+    for audit_path in paths:
+        if audit_path.startswith("/") or ".." in Path(audit_path).parts:
+            failures.append(f"{relative} has invalid audit path '{audit_path}'")
+        elif tree and tree != "empty" and git.run(
+            ["cat-file", "-e", f"{tree}:{audit_path}"], cwd=repo, check=False
+        ).returncode:
+            failures.append(f"{relative} audit path '{audit_path}' does not exist in tree {tree}")
+    for finding in raw.get("findings", []):
+        if not isinstance(finding, dict):
+            failures.append(f"{relative} finding must be a mapping")
+            continue
+        fid = finding.get("id")
+        flabel = f"{relative}:{fid}"
+        if not _valid_id(fid):
+            failures.append(f"{relative} invalid finding id '{fid}'")
+        if not finding.get("summary"):
+            failures.append(f"{flabel} missing summary")
+        evidence = refs(finding.get("evidence"))
+        if not evidence:
+            failures.append(f"{flabel} requires evidence")
+        for locator in evidence:
+            failures.extend(_evidence(repo, locator, flabel, str(tree) if tree else None))
+        if finding.get("proposed") not in {
+            "domain", "contract", "architecture", "discovery", "none", "constraint", "observation"
+        }:
+            failures.append(f"{flabel} invalid proposed value '{finding.get('proposed')}'")
+        if finding.get("disposition") not in {
+            "adoptable", "needs-authority", "needs-verifier", "discovery-only", "no-action", "observation-only"
+        }:
+            failures.append(f"{flabel} invalid disposition '{finding.get('disposition')}'")
+        if finding.get("authority"):
+            failures.extend(_authority(repo, finding.get("authority"), flabel))
+    return failures
+
+
 def _yaml_files(repo: Path, named: Iterable[str] = ()) -> list[Path]:
     output = git.run(
         ["ls-files", "--cached", "--others", "--exclude-standard", "--", ".invariant/"],
@@ -335,59 +401,7 @@ def validate(repo: Path, *, landing: bool = False, named: Iterable[str] = ()) ->
             failures.extend(_verifier(repo, locator, label))
 
     for path, raw in audit_rows:
-        relative = path.relative_to(repo).as_posix()
-        identifier = raw.get("id")
-        if not _valid_id(identifier):
-            failures.append(f"{relative} invalid audit id '{identifier}'")
-        if path.stem != identifier:
-            failures.append(f"{relative} filename must be {identifier}.yml")
-        if raw.get("mode") not in {"scope", "full"}:
-            failures.append(f"{relative} invalid audit mode '{raw.get('mode')}'")
-        if "findings" not in raw or not isinstance(raw.get("findings"), list):
-            failures.append(f"{relative} missing findings")
-        ground, tree = raw.get("ground"), raw.get("tree")
-        if not ground:
-            failures.append(f"{relative} missing ground")
-        elif ground != "unborn" and not git.resolve(repo, str(ground)):
-            failures.append(f"{relative} ground '{ground}' does not resolve")
-        if not tree:
-            failures.append(f"{relative} missing tree")
-        elif tree != "empty" and git.resolve(repo, str(tree), "tree") is None:
-            failures.append(f"{relative} tree '{tree}' does not resolve")
-        for domain in refs(raw.get("domains")):
-            if domain not in domain_ids:
-                failures.append(f"{relative} references missing domain '{domain}'")
-        paths = refs(raw.get("paths"))
-        if raw.get("mode") == "scope" and not paths:
-            failures.append(f"{relative} scoped audit requires at least one path")
-        for audit_path in paths:
-            if audit_path.startswith("/") or ".." in Path(audit_path).parts:
-                failures.append(f"{relative} has invalid audit path '{audit_path}'")
-            elif tree and tree != "empty" and git.run(
-                ["cat-file", "-e", f"{tree}:{audit_path}"], cwd=repo, check=False
-            ).returncode:
-                failures.append(f"{relative} audit path '{audit_path}' does not exist in tree {tree}")
-        for finding in raw.get("findings", []):
-            if not isinstance(finding, dict):
-                failures.append(f"{relative} finding must be a mapping")
-                continue
-            fid = finding.get("id")
-            flabel = f"{relative}:{fid}"
-            if not _valid_id(fid):
-                failures.append(f"{relative} invalid finding id '{fid}'")
-            if not finding.get("summary"):
-                failures.append(f"{flabel} missing summary")
-            evidence = refs(finding.get("evidence"))
-            if not evidence:
-                failures.append(f"{flabel} requires evidence")
-            for locator in evidence:
-                failures.extend(_evidence(repo, locator, flabel, str(tree) if tree else None))
-            if finding.get("proposed") not in {"domain", "contract", "architecture", "discovery", "none", "constraint", "observation"}:
-                failures.append(f"{flabel} invalid proposed value '{finding.get('proposed')}'")
-            if finding.get("disposition") not in {"adoptable", "needs-authority", "needs-verifier", "discovery-only", "no-action", "observation-only"}:
-                failures.append(f"{flabel} invalid disposition '{finding.get('disposition')}'")
-            if finding.get("authority"):
-                failures.extend(_authority(repo, finding.get("authority"), flabel))
+        failures.extend(validate_audit(repo, path, raw, domain_ids))
 
     for path, discovery, raw in discovery_rows:
         relative = path.relative_to(repo).as_posix()

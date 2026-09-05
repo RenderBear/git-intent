@@ -33,26 +33,26 @@ grep -q '^coding_agents:$' "$defaults/.invariant/config.yml" || die "default ini
 grep -q '^- codex$' "$defaults/.invariant/config.yml" || die "default init omitted Codex"
 grep -q '^- claude$' "$defaults/.invariant/config.yml" || die "default init omitted Claude"
 grep -q '^integration_branch: auto$' "$defaults/.invariant/config.yml" || die "default init did not preserve automatic integration selection"
-grep -q '^resolution: auto$' "$defaults/.invariant/config.yml" || die "default init did not use automatic resolution"
+grep -q '^authority: agent$' "$defaults/.invariant/config.yml" || die "default init did not grant agent authority"
 grep -q "^push_remote: 'off'$" "$defaults/.invariant/config.yml" || die "default init enabled publication"
 grep -q '^# Existing Codex instructions$' "$defaults/AGENTS.md" || die "Codex setup replaced existing instructions"
 [ "$(grep -c '^<!-- invariant:workflow:start -->$' "$defaults/AGENTS.md")" -eq 1 ] || die "Codex workflow marker is not singular"
 grep -q '^## Invariant lifecycle$' "$defaults/AGENTS.md" || die "Codex workflow was not installed"
 grep -q '^# Existing Claude instructions$' "$defaults/CLAUDE.md" || die "Claude setup replaced existing instructions"
 grep -q '^@AGENTS.md$' "$defaults/CLAUDE.md" || die "Claude does not import the shared workflow"
-printf '%s\n' "$out" | grep -q '^Recommended next step$' || die "init omitted the audit recommendation"
-printf '%s\n' "$out" | grep -q 'Conduct a full repository audit with Invariant\.' || die "init omitted the agent prompt"
+printf '%s\n' "$out" | grep -q '^Recommended next step$' || die "init omitted the governance recommendation"
+printf '%s\n' "$out" | grep -q 'Run the initial governance workflow with Invariant\.' || die "init omitted the governance prompt"
 printf '%s\n' "$out" | grep -q "Intent shaping.*Model's own understanding" || die "default intent shaping was not explained"
 [ ! -e "$defaults/.invariant/DOMAINS.yml" ] || die "init manufactured empty domains"
 [ ! -e "$defaults/.invariant/CONTRACTS.yml" ] || die "init manufactured empty contracts"
 [ ! -e "$defaults/.invariant/audits" ] || die "init ran an audit"
-ok "--defaults configures both coding agents and recommends an audit without running one"
+ok "--defaults configures both coding agents and requests an initial governance run"
 
 interactive="$fixtures/interactive"
 new_repo "$interactive" trunk
 git -C "$interactive" branch stable
 answers='claude
-assisted
+human
 assisted
 named
 stable
@@ -62,7 +62,7 @@ out=$(printf '%s\n' "$answers" | (cd "$interactive" && "$cli" init))
 grep -q '^coding_agents:$' "$interactive/.invariant/config.yml" || die "interactive init omitted coding agents"
 grep -q '^- claude$' "$interactive/.invariant/config.yml" || die "interactive init did not select Claude"
 if grep -q '^- codex$' "$interactive/.invariant/config.yml"; then die "interactive init selected Codex unexpectedly"; fi
-grep -q '^resolution: assisted$' "$interactive/.invariant/config.yml" || die "interactive resolution choice was lost"
+grep -q '^authority: human$' "$interactive/.invariant/config.yml" || die "interactive authority choice was lost"
 grep -q '^execution: assisted$' "$interactive/.invariant/config.yml" || die "interactive execution choice was lost"
 grep -q '^integration_branch: stable$' "$interactive/.invariant/config.yml" || die "named integration branch was lost"
 grep -q "^push_remote: 'on'$" "$interactive/.invariant/config.yml" || die "interactive publication choice was lost"
@@ -70,6 +70,7 @@ grep -q '^  intent_expansion: true$' "$interactive/.invariant/config.yml" || die
 grep -q '^  outcome_review: true$' "$interactive/.invariant/config.yml" || die "custom post-step choice was lost"
 [ ! -e "$interactive/AGENTS.md" ] || die "Claude-only setup created AGENTS.md"
 grep -q '^## Invariant lifecycle$' "$interactive/CLAUDE.md" || die "Claude-only workflow was not installed"
+grep -q '^# Human ergonomics$' "$interactive/CLAUDE.md" || die "human ergonomics guidance was not installed"
 printf '%s\n' "$out" | grep -q '^◆ Integration branch$' || die "interactive init did not explain integration branch"
 printf '%s\n' "$out" | grep -q 'Resolve the target when each task begins' || die "automatic branch behavior was not explained"
 printf '%s\n' "$out" | grep -q '^◆ Intent shaping$' || die "interactive init split the optional intent steps"

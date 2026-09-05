@@ -15,7 +15,7 @@ from invariant.mechanics.documents import dump_yaml, load_yaml
 CONFIG_PATH = Path(".invariant/config.yml")
 SETTABLE_KEYS = {
     "coding_agents",
-    "resolution",
+    "authority",
     "execution",
     "integration_branch",
     "push_remote",
@@ -34,7 +34,7 @@ class LifecycleOptions:
 @dataclass(frozen=True)
 class Config:
     coding_agents: tuple[str, ...]
-    resolution: str
+    authority: str
     execution: str
     integration_branch: str
     integration_branch_setting: str
@@ -71,12 +71,17 @@ def _from_raw(
     allowed = {
         "version",
         "coding_agents",
-        "resolution",
+        "authority",
         "execution",
         "integration_branch",
         "push_remote",
         "lifecycle",
     }
+    if "resolution" in raw:
+        raise InvariantError(
+            "Invariant: .invariant/config.yml uses removed field 'resolution'; "
+            "replace resolution: auto with authority: agent, or resolution: assisted with authority: human"
+        )
     unknown = sorted(set(raw) - allowed)
     if unknown:
         raise InvariantError(f"Invariant: .invariant/config.yml has unknown field '{unknown[0]}'")
@@ -91,10 +96,10 @@ def _from_raw(
         )
     selected_agents = set(agents_raw)
     coding_agents = tuple(item for item in ("codex", "claude") if item in selected_agents)
-    resolution = raw.get("resolution", "auto")
-    if resolution not in {"assisted", "auto"}:
+    authority = raw.get("authority", "agent")
+    if authority not in {"agent", "human"}:
         raise InvariantError(
-            f"Invariant: .invariant/config.yml has invalid resolution '{resolution}' (use assisted or auto)"
+            f"Invariant: .invariant/config.yml has invalid authority '{authority}' (use agent or human)"
         )
     execution = raw.get("execution", "auto")
     if execution not in {"auto", "assisted"}:
@@ -135,7 +140,7 @@ def _from_raw(
     return _finish(
         repo,
         coding_agents,
-        resolution,
+        authority,
         execution,
         branch,
         configured,
@@ -153,7 +158,7 @@ def resolve(repo: Path) -> Config:
         return _finish(
             repo,
             ("codex", "claude"),
-            "auto",
+            "agent",
             "auto",
             branch,
             "auto",
@@ -183,7 +188,7 @@ def resolve_at(repo: Path, ref: str, integration_branch: str) -> Config:
         return _finish(
             repo,
             ("codex", "claude"),
-            "auto",
+            "agent",
             "auto",
             integration_branch,
             "auto",
@@ -212,7 +217,7 @@ def _document(config: Config) -> dict[str, Any]:
     return {
         "version": 1,
         "coding_agents": list(config.coding_agents),
-        "resolution": config.resolution,
+        "authority": config.authority,
         "execution": config.execution,
         "integration_branch": config.integration_branch_setting,
         "push_remote": config.push_remote,
@@ -227,7 +232,7 @@ def initialize(
     repo: Path,
     *,
     coding_agents: tuple[str, ...] | None = None,
-    resolution: str | None = None,
+    authority: str | None = None,
     execution: str | None = None,
     integration_branch: str | None = None,
     push_remote: str | None = None,
@@ -245,7 +250,7 @@ def initialize(
     document: dict[str, Any] = {
         "version": 1,
         "coding_agents": list(coding_agents if coding_agents is not None else ("codex", "claude")),
-        "resolution": resolution if resolution is not None else "auto",
+        "authority": authority if authority is not None else "agent",
         "execution": execution if execution is not None else "auto",
         "integration_branch": branch_setting,
         "push_remote": push_remote if push_remote is not None else "off",
@@ -288,8 +293,8 @@ def set_value(repo: Path, key: str, value: str) -> list[str]:
             )
         selected = set(values)
         document[key] = [item for item in ("codex", "claude") if item in selected]
-    elif key in {"resolution", "execution"}:
-        choices = {"resolution": {"assisted", "auto"}, "execution": {"auto", "assisted"}}
+    elif key in {"authority", "execution"}:
+        choices = {"authority": {"agent", "human"}, "execution": {"auto", "assisted"}}
         if value not in choices[key]:
             expected = " or ".join(sorted(choices[key]))
             raise InvariantError(f"Invariant: {key} must be {expected}", code="invalid_config_value")
@@ -326,7 +331,7 @@ def set_value(repo: Path, key: str, value: str) -> list[str]:
 def _finish(
     repo: Path,
     coding_agents: tuple[str, ...],
-    resolution: str,
+    authority: str,
     execution: str,
     branch: str,
     branch_setting: str,
@@ -348,7 +353,7 @@ def _finish(
             raise InvariantError(f"Invariant: configured integration branch '{branch}' does not exist locally")
     return Config(
         coding_agents,
-        resolution,
+        authority,
         execution,
         branch,
         branch_setting,
@@ -364,7 +369,7 @@ def lines(config: Config) -> list[str]:
     output = [
         "version: 1",
         f"coding_agents: {', '.join(config.coding_agents)}",
-        f"resolution: {config.resolution}",
+        f"authority: {config.authority}",
         f"execution: {config.execution}",
         f"integration_branch: {config.integration_branch_setting}",
         f"push_remote: {config.push_remote}",

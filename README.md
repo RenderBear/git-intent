@@ -66,11 +66,11 @@ Use every safe default without prompts:
 invariant init --defaults
 ```
 
-This selects both Codex and Claude Code, agent-led semantic resolution, automatic lifecycle
+This selects both Codex and Claude Code, agent semantic authority, automatic lifecycle
 execution, the current branch as the automatic integration target, local-only landing, and the
-optional lifecycle bookends disabled. Initialization does not run an audit; after setup it prints a
-recommended natural-language request for your coding agent to conduct a full audit and establish
-the initial domains, architecture references, and executable contracts.
+optional lifecycle bookends disabled. Initialization does not run a model; after setup it prints a
+natural-language request for your coding agent to run the complete initial governance workflow
+from saved audit through adoption.
 
 Interactive setup presents the two optional intent controls as one choice. The default is
 model-led: it relies on the coding agent's own understanding and normal candidate review. A
@@ -125,7 +125,7 @@ Its effective defaults are:
 ```yaml
 version: 1
 coding_agents: [codex, claude]
-resolution: auto
+authority: agent
 execution: auto
 integration_branch: auto
 push_remote: off
@@ -140,7 +140,7 @@ Settings:
 |---|---|---|---|
 | `version` | `1` | `1` | Configuration schema version. It is fixed and not user-configurable. |
 | `coding_agents` | `[codex, claude]` | Any non-empty subset of `codex`, `claude` | Which root agent instruction files receive the managed Invariant workflow during initialization. |
-| `resolution` | `auto` | `assisted`, `auto` | Whether consequential semantic ambiguity needs a human or may be settled by an agent acting within accepted authority. |
+| `authority` | `agent` | `agent`, `human` | Who may define repository-wide semantics, resolve contradictions, and approve durable intent. |
 | `execution` | `auto` | `auto`, `assisted` | Whether state-changing lifecycle transitions run immediately or pause for explicit continuation. |
 | `integration_branch` | `auto` | `auto`, local branch name | The branch that receives verified landings. `auto` uses the current branch when a task begins; a name fixes one local convergence target. |
 | `push_remote` | `off` | `off`, `on` | Whether a successful landing stays local or pushes the exact verified commit to the integration branch's existing upstream. |
@@ -153,6 +153,7 @@ validated settings through the CLI:
 ```bash
 invariant config show
 invariant config set coding_agents codex,claude
+invariant config set authority human
 invariant config set execution assisted
 invariant config set integration_branch auto
 invariant config set integration_branch main
@@ -162,23 +163,29 @@ invariant config set lifecycle.intent_expansion on
 
 ## Establish architectural intent
 
-Invariant does not require a complete model up front: start with a full audit, then let normal work
-deepen it progressively.
+Invariant does not require a complete model up front: start with an initial governance run, then let
+normal work deepen it progressively.
 
-### Start with a full audit (recommended)
+### Run initial governance (recommended)
 
-Ask your coding agent to conduct a full repository audit with Invariant. The audit is read-only: the
-agent investigates responsibilities, boundaries, dependencies, and executable promises, then
-presents one consolidated proposal. `resolution` controls whether adoption needs human approval;
-`execution` controls the branch, verification, and landing that establish approved records as the
-repository's durable semantic layer.
+Ask your coding agent to run Invariant's initial governance workflow. The agent investigates
+responsibilities, boundaries, dependencies, and executable promises and saves the completed audit
+under `.invariant/audits/`. With `authority: agent`, it continues automatically through adoption and
+managed landing. With `authority: human`, it presents a concise findings summary and lets the human
+investigate further, adopt all ready findings, adopt selected findings, or defer. `execution`
+independently controls branch and landing pauses.
+
+The agent-facing audit handoff is explicit: `invariant evidence audit full` frames the investigation,
+and `invariant evidence audit save <id> --mode full --input <findings.yml>` stamps the exact Git
+ground and tree, validates the findings, and persists the audit. The input file contains only
+`version: 1` and `findings`; causal fields are owned by the CLI.
 
 ### Continue with progressive discovery
 
 During normal work, the agent inspects outward from the goal and surfaces missing, contradictory, or
-outdated intent. In assisted mode, the human decides whether each finding should be preserved or
-resolved; in auto mode, accepted repository policy allows the agent to proceed when sufficient
-authority already exists. Unresolved discoveries remain evidence, while accepted resolutions can
+outdated intent. With human authority, the human decides whether each finding should be preserved
+or resolved; with agent authority, accepted repository policy allows the agent to proceed within
+its granted scope. Unresolved discoveries remain evidence, while accepted resolutions can
 update architecture, contracts, code, tests, or no artifact at all.
 
 ## Files and terms

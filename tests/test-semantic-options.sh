@@ -96,6 +96,8 @@ EOF
 guidance=$(cd "$fixture" && "$cli" task guidance semantic-flow)
 printf '%s\n' "$guidance" | grep -q '^# Active task context$' ||
   die "compiled guidance omitted the active semantic envelope"
+printf '%s\n' "$guidance" | grep -q '^Paths (current candidate): docs/architecture.md$' ||
+  die "compiled guidance preserved stale initial paths instead of current candidate paths"
 printf '%s\n' "$guidance" | grep -q '^# Expanded task intent$' ||
   die "compiled guidance omitted the task-specific prose"
 printf '%s\n' "$guidance" | grep -q '^# Durable semantic reasoning$' ||
@@ -162,13 +164,13 @@ if git -C "$fixture" show-ref --verify -q "refs/heads/$branch"; then
 fi
 ok "outcome review binds stable acceptance IDs to the exact candidate tree"
 
-(cd "$fixture" && "$cli" config set resolution assisted >/dev/null)
+(cd "$fixture" && "$cli" config set authority human >/dev/null)
 git -C "$fixture" add .invariant/config.yml
-git -C "$fixture" commit -qm "require assisted semantic resolution"
+git -C "$fixture" commit -qm "require human semantic authority"
 if out=$(cd "$fixture" && "$cli" evidence discovery capture missing-adr \
   --observation "No ADR describes the source boundary." \
   --searched docs/adr --path src --domain source --related task:document-source-boundary 2>&1); then
-  die "assisted resolution recorded a discovery without approval"
+  die "human authority recorded a discovery without approval"
 fi
 printf '%s\n' "$out" | grep -q '^PROPOSAL: record discovery missing-adr' ||
   die "assisted discovery did not present the observation for approval"
@@ -185,35 +187,35 @@ grep -q '^disposition:' "$discovery" || die "discovery disposition is missing"
 if out=$(cd "$fixture" && "$cli" evidence discovery resolve missing-adr \
     --prose "Track documentation as follow-up work." \
     --output task:document-source-boundary 2>&1); then
-  die "assisted resolution resolved a discovery without approval"
+  die "human authority resolved a discovery without approval"
 fi
 printf '%s\n' "$out" | grep -q '^PROPOSAL: resolve discovery missing-adr$' ||
-  die "assisted discovery resolution did not request approval"
+  die "human-authority discovery resolution did not request approval"
 (cd "$fixture" && "$cli" evidence discovery resolve missing-adr \
   --prose "Track documentation as follow-up work." \
   --output task:document-source-boundary --apply >/dev/null)
-(cd "$fixture" && "$cli" config set resolution auto >/dev/null)
+(cd "$fixture" && "$cli" config set authority agent >/dev/null)
 if (cd "$fixture" && "$cli" evidence discovery capture premature-auto \
-    --observation "A candidate cannot authorize its own automatic resolution." \
+    --observation "A candidate cannot grant itself agent authority." \
     --searched docs >/dev/null 2>&1); then
-  die "unaccepted automatic resolution authorized its own discovery"
+  die "unaccepted agent authority authorized its own discovery"
 fi
 git -C "$fixture" add .invariant/config.yml
-git -C "$fixture" commit -qm "enable automatic semantic resolution"
+git -C "$fixture" commit -qm "enable agent semantic authority"
 out=$(cd "$fixture" && "$cli" evidence discovery capture automatic-finding \
-  --observation "Automatic resolution may preserve this bounded finding." --searched docs)
+  --observation "Agent authority may preserve this bounded finding." --searched docs)
 printf '%s\n' "$out" | grep -q '^STATUS: open$' ||
-  die "automatic resolution did not record an authorized discovery"
+  die "agent authority did not record an authorized discovery"
 [ -f "$fixture/.invariant/discoveries/automatic-finding.yml" ] ||
   die "automatic discovery record is missing"
-(cd "$fixture" && "$cli" config set resolution assisted >/dev/null)
+(cd "$fixture" && "$cli" config set authority human >/dev/null)
 if (cd "$fixture" && "$cli" evidence discovery capture immediate-assistance \
-    --observation "Assisted resolution takes effect before its configuration lands." \
+    --observation "Human authority takes effect before its configuration lands." \
     --searched docs >/dev/null 2>&1); then
-  die "switching back to assisted resolution was not immediate"
+  die "switching back to human authority was not immediate"
 fi
 (cd "$fixture" && "$cli" state validate >/dev/null) ||
   die "discovery resolution to non-contract work was rejected"
-ok "assisted discoveries require approval while automatic discoveries can proceed"
+ok "human-authority discoveries require approval while agent-authority discoveries can proceed"
 
 echo "4 semantic option checks passed"

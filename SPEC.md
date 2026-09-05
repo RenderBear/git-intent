@@ -198,6 +198,19 @@ The existing staged direct-edit path remains an explicit recovery path for work 
 the integration branch. It does not replace the normal generated-branch lifecycle and still requires
 exact-tree verification and atomic landing.
 
+### 4.2 Human ergonomics
+
+The host translates semantic protocol into behavior-level decisions. Humans are not asked to
+construct paths, domains, reach sets, boundary dispositions, architecture or governance locators,
+checks, or assessment files. Those are agent-authored and mechanically validated integration data.
+
+When human authority is required, the host presents the observation, confidence, practical
+consequence, compatible options, recommendation, and one concrete approval or clarification. After
+a governance audit it groups findings into ready, decision-needed, verifier-needed, and
+evidence-only categories; confirms that the audit is saved; and offers deeper investigation,
+adoption of all ready findings, adoption of selected findings, or deferral. Raw validation failures
+remain available for diagnostics but are not treated as the human interaction design.
+
 ## 5. State and authority
 
 Tracked repository state remains:
@@ -249,7 +262,7 @@ Tracked repository configuration remains small:
 ```yaml
 version: 1
 coding_agents: [codex, claude]
-resolution: auto
+authority: agent
 execution: auto
 integration_branch: auto
 push_remote: off
@@ -261,18 +274,18 @@ lifecycle:
 `coding_agents` records the non-empty set of supported coding agents configured during repository
 initialization. It controls instruction-file setup, not semantic authority or model execution.
 
-`resolution` governs semantic authority:
+`authority` names who may define repository-wide semantics, resolve conflicts, and approve durable
+intent:
 
-- `assisted` previews discovery capture and resolution without mutation, then sends the semantic
+- `human` previews discovery capture and resolution without mutation, then sends the semantic
   proposal to a human for approval;
-- `auto` permits an agent to resolve meaning when the current request and accepted authority are
+- `agent` permits an agent to resolve meaning when the current request and accepted authority are
   sufficient.
 
 The agent supplies causal evidence, searched paths, domains, and record structure in both modes.
-The human supplies intent or authority only; after approval, the harness reapplies an assisted
-transition with `--apply`. Automatic resolution requires both accepted and proposed configuration
-to remain `auto`: enabling takes effect after integration, while returning to `assisted` is
-immediate.
+The human supplies intent or authority only; after approval, the harness reapplies a human-authority
+transition with `--apply`. Agent authority requires both accepted and proposed configuration to
+remain `agent`: enabling takes effect after integration, while returning to `human` is immediate.
 
 `integration_branch` identifies the default local convergence target. `auto` resolves the current
 branch when a new task begins; a named value fixes one existing local branch as the convergence
@@ -295,14 +308,15 @@ after local landing reports a blocked publication while retaining the local inte
 - `assisted` presents state-changing transitions before applying them and waits for explicit
   continuation.
 
-A full audit is read-only investigation, so `execution` does not gate it. Adoption separates the
-two controls: `resolution` determines whether findings need human semantic approval, while
-`execution` determines whether the resulting task branch, verification, and landing advance
-automatically. With assisted resolution and automatic execution, the agent completes the audit,
-presents one consolidated proposal, and—after approval—runs the resulting repository changes
-through the normal task lifecycle without routine Git prompts.
+A full audit is read-only investigation, so `execution` does not gate it. The completed audit is
+persisted under `.invariant/audits/` with its exact ground and tree before adoption. Adoption keeps
+the two controls separate: `authority` determines who approves the findings, while `execution`
+determines whether the resulting task branch, verification, and landing advance automatically.
+With agent authority, audit through adoption is one autonomous governance run. With human authority,
+the saved audit is summarized before the human chooses deeper investigation, adoption of all ready
+findings, adoption of selected findings, or deferral.
 
-Absence means both supported coding agents, `resolution: auto`, `execution: auto`,
+Absence means both supported coding agents, `authority: agent`, `execution: auto`,
 `integration_branch: auto`, `push_remote: off`, and disabled optional lifecycle bookends. Automatic
 execution is the ergonomic default; it does not remove briefing, branch isolation, exact-tree
 verification, or atomic landing. Neither execution mode weakens validation or grants external
@@ -311,14 +325,14 @@ authority.
 `invariant init` is the repository bootstrap. Interactive invocation explains and collects each
 setting; `--defaults` selects both coding agents and every safe default without prompting. It creates
 `.invariant/config.yml`, installs or updates a marked workflow block in the selected root agent
-instruction files, and prints a natural-language recommendation to ask the coding agent for a full
-audit. It never runs that audit itself. Existing unrelated agent instructions are preserved, and an
+instruction files, and prints a natural-language request for the coding agent to run initial
+governance. It never runs a model itself. Existing unrelated agent instructions are preserved, and an
 ambiguous unmanaged Invariant section blocks initialization before project state is created.
 
 `invariant config show` displays configured and resolved values without creating state.
 `invariant config init` remains the lower-level configuration-only initializer.
 `invariant config set <key> <value>` updates one validated setting atomically. The settable keys are
-`coding_agents`, `resolution`, `execution`, `integration_branch`, `push_remote`,
+`coding_agents`, `authority`, `execution`, `integration_branch`, `push_remote`,
 `lifecycle.intent_expansion`, and `lifecycle.outcome_review`. Version `1` is the configuration schema
 marker, not an operational setting.
 
@@ -456,6 +470,7 @@ invariant context digest [--at <commit>] <domain>...
 invariant context reach [--base <ref>] [--path <path>]...
                         [--interface <name>]... [--domain <id>]...
 invariant evidence audit <scope|full> ...
+invariant evidence audit save <audit-id> --mode <scope|full> --input <findings-file> ...
 invariant evidence fresh <audit-or-discovery> [--at <ref>]
 invariant evidence discovery <capture|resolve> ... [--apply]
 invariant coordinate plan validate <plan>
@@ -603,7 +618,9 @@ same lifecycle with little or no semantic ceremony.
 
 An audit is tracked evidence over a declared commit and exact tree. The CLI can capture mechanical
 scope, validate evidence references, and check causal freshness. A semantic reviewer authors its
-findings and dispositions.
+findings and dispositions. `evidence audit save` accepts only a version marker and findings, stamps
+the audit ID, mode, ground, and tree, validates the complete record, and writes it under
+`.invariant/audits/` before any adoption decision.
 
 A discovery is a tracked non-authoritative change in repository understanding:
 
@@ -625,11 +642,11 @@ Evidence changes can make an audit or discovery mechanically suspect. Whether ch
 contradicts a finding remains semantic judgment.
 
 Discovery is agent-mediated. The coding agent supplies the observation, evidence, searched scope,
-paths, domains, and related records. In assisted resolution mode, capture and resolution first
-return a `resolution_required` proposal and leave tracked state unchanged. The host presents only
-the observation and required semantic decision to the human, then repeats the transition with
-`--apply` after approval. In automatic mode, the transition proceeds when the agent has sufficient
-authority. Detailed evidence fields remain part of the harness protocol, not the human interface.
+paths, domains, and related records. Under human authority, capture and resolution first return an
+`authority_required` proposal and leave tracked state unchanged. The host presents only the
+observation and required semantic decision to the human, then repeats the transition with `--apply`
+after approval. Under agent authority, the transition proceeds within the granted scope. Detailed
+evidence fields remain part of the harness protocol, not the human interface.
 
 ### 11.1 Repository archaeology and semantic reasoning
 
@@ -776,7 +793,7 @@ distributed as the application and cannot be imported by the mechanics or lifecy
 - Ref updates use compare-and-swap against a captured old value.
 - Untracked files that would be overwritten block synchronization.
 - Failed verification never advances a ref.
-- `resolution: auto` does not authorize external or destructive effects.
+- `authority: agent` does not authorize external or destructive effects.
 - `execution: auto` does not bypass semantic gates or mechanical checks.
 
 ## 17. Implementation architecture

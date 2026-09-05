@@ -10,14 +10,29 @@ from invariant.mechanics import audit, config, git
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     parser = subparsers.add_parser("evidence", help="Audit and record progressive discoveries")
     commands = parser.add_subparsers(dest="evidence_command", required=True)
-    audit_parser = commands.add_parser("audit")
+    audit_parser = commands.add_parser("audit", help="Frame and persist causally grounded audits")
     audits = audit_parser.add_subparsers(dest="audit_command", required=True)
-    scope = audits.add_parser("scope")
-    scope.add_argument("--path", action="append", required=True)
+    scope = audits.add_parser("scope", help="Frame a read-only audit for explicit repository paths")
+    scope.add_argument("--path", action="append", required=True, help="repository-relative path")
     scope.set_defaults(_handler=_scope, _command="evidence.audit.scope")
-    full = audits.add_parser("full")
-    full.add_argument("--resolution", choices=["assisted", "auto"])
+    full = audits.add_parser("full", help="Frame a repository-wide governance audit")
     full.set_defaults(_handler=_full, _command="evidence.audit.full")
+    save = audits.add_parser("save", help="Stamp, validate, and save completed audit findings")
+    save.add_argument("audit_id")
+    save.add_argument("--mode", choices=["scope", "full"], required=True)
+    save.add_argument(
+        "--input",
+        type=Path,
+        required=True,
+        help="version-1 YAML containing only a findings list; Invariant stamps causal fields",
+    )
+    save.add_argument(
+        "--path", action="append", default=[], help="required scope path in scope mode"
+    )
+    save.add_argument(
+        "--domain", action="append", default=[], help="existing domain relevant to the audit"
+    )
+    save.set_defaults(_handler=_save, _command="evidence.audit.save")
     fresh = commands.add_parser("fresh")
     fresh.add_argument("locator")
     fresh.add_argument("--at", default="HEAD")
@@ -53,19 +68,31 @@ def _scope(args: argparse.Namespace) -> list[str]:
 
 def _full(args: argparse.Namespace) -> list[str]:
     repo = git.root()
-    resolution = args.resolution or config.resolve(repo).resolution
-    return audit.full(repo, resolution)
+    return audit.full(repo, _authority_mode(repo))
 
 
-def _resolution_mode(repo: Path) -> str:
+def _authority_mode(repo: Path) -> str:
     proposed = config.resolve(repo)
-    if proposed.resolution != "auto":
-        return "assisted"
+    if proposed.authority != "agent":
+        return "human"
     ground = git.resolve(repo, f"refs/heads/{proposed.integration_branch}")
     if not ground:
-        return "assisted"
+        return "human"
     accepted = config.resolve_at(repo, ground, proposed.integration_branch)
-    return "auto" if accepted.resolution == "auto" else "assisted"
+    return "agent" if accepted.authority == "agent" else "human"
+
+
+def _save(args: argparse.Namespace) -> list[str]:
+    repo = git.root()
+    return audit.save(
+        repo,
+        args.audit_id,
+        mode=args.mode,
+        source=args.input,
+        paths=args.path,
+        domains=args.domain,
+        authority=_authority_mode(repo),
+    )
 
 
 def _fresh(args: argparse.Namespace) -> list[str]:
@@ -74,7 +101,7 @@ def _fresh(args: argparse.Namespace) -> list[str]:
 
 def _capture(args: argparse.Namespace) -> list[str]:
     repo = git.root()
-    preview = args.dry_run or (_resolution_mode(repo) == "assisted" and not args.apply)
+    preview = args.dry_run or (_authority_mode(repo) == "human" and not args.apply)
     lines = audit.capture_discovery(
         repo,
         args.discovery_id,
@@ -90,8 +117,8 @@ def _capture(args: argparse.Namespace) -> list[str]:
     if preview and not args.dry_run:
         observation = " ".join(args.observation.split())
         raise Blocked(
-            "Invariant: assisted resolution requires approval before recording a discovery",
-            code="resolution_required",
+            "Invariant: human authority requires approval before recording a discovery",
+            code="authority_required",
             lines=[
                 f"PROPOSAL: record discovery {args.discovery_id} — {observation}",
                 *lines,
@@ -103,14 +130,14 @@ def _capture(args: argparse.Namespace) -> list[str]:
 
 def _resolve(args: argparse.Namespace) -> list[str]:
     repo = git.root()
-    preview = args.dry_run or (_resolution_mode(repo) == "assisted" and not args.apply)
+    preview = args.dry_run or (_authority_mode(repo) == "human" and not args.apply)
     lines = audit.resolve_discovery(
         repo, args.discovery_id, prose=args.prose, outputs=args.output, dry_run=preview
     )
     if preview and not args.dry_run:
         raise Blocked(
-            "Invariant: assisted resolution requires approval before resolving a discovery",
-            code="resolution_required",
+            "Invariant: human authority requires approval before resolving a discovery",
+            code="authority_required",
             lines=[
                 f"PROPOSAL: resolve discovery {args.discovery_id}",
                 *lines,

@@ -12,17 +12,22 @@ from invariant.semantics import guidance
 
 START = "<!-- invariant:workflow:start -->"
 END = "<!-- invariant:workflow:end -->"
-AUDIT_PROMPT = (
-    "Conduct a full repository audit with Invariant. Investigate without interrupting me, then "
-    "present one consolidated proposal for the initial domains, architecture references, and "
-    "executable contracts."
+AGENT_GOVERNANCE_PROMPT = (
+    "Run the initial governance workflow with Invariant. Audit the repository, save the audit, "
+    "then adopt and land the initial domains, architecture references, and executable contracts "
+    "without routine approval pauses. Escalate only decisions outside your authority."
+)
+HUMAN_GOVERNANCE_PROMPT = (
+    "Run the initial governance workflow with Invariant. Audit the repository and save the audit, "
+    "then give me a concise findings summary and clear choices to investigate further, adopt all "
+    "ready findings, adopt selected findings, or defer adoption."
 )
 
 
 @dataclass(frozen=True)
 class BootstrapSettings:
     coding_agents: tuple[str, ...] = ("codex", "claude")
-    resolution: str = "auto"
+    authority: str = "agent"
     execution: str = "auto"
     integration_branch: str = "auto"
     push_remote: str = "off"
@@ -78,7 +83,7 @@ def _write(path: Path, text: str) -> None:
 
 def _instruction_updates(repo: Path, coding_agents: tuple[str, ...]) -> dict[Path, str]:
     selected = set(coding_agents)
-    workflow = guidance.read("workflow")
+    workflow = guidance.agent_workflow()
     updates: dict[Path, str] = {}
     agents = repo / "AGENTS.md"
     claude = repo / "CLAUDE.md"
@@ -114,7 +119,7 @@ def initialize(repo: Path, settings: BootstrapSettings) -> list[str]:
     config.initialize(
         repo,
         coding_agents=settings.coding_agents,
-        resolution=settings.resolution,
+        authority=settings.authority,
         execution=settings.execution,
         integration_branch=settings.integration_branch,
         push_remote=settings.push_remote,
@@ -136,7 +141,7 @@ def initialize(repo: Path, settings: BootstrapSettings) -> list[str]:
         "INITIALIZED: repository",
         f"CONFIG: {config.CONFIG_PATH.as_posix()}",
         f"CODING-AGENTS: {', '.join(settings.coding_agents)}",
-        f"RESOLUTION: {settings.resolution}",
+        f"AUTHORITY: {settings.authority}",
         f"EXECUTION: {settings.execution}",
         f"INTEGRATION-BRANCH: {resolved.integration_branch}",
         f"INTEGRATION-BRANCH-SETTING: {settings.integration_branch}",
@@ -145,8 +150,7 @@ def initialize(repo: Path, settings: BootstrapSettings) -> list[str]:
         f"OUTCOME-REVIEW: {'on' if settings.outcome_review else 'off'}",
         *instruction_lines,
         (
-            "RECOMMENDED: Ask your coding agent to conduct a full audit with Invariant to establish "
-            "the initial domains, architecture references, and executable contracts."
+            "RECOMMENDED: Ask your coding agent to run Invariant's initial governance workflow."
         ),
-        f"PROMPT: {AUDIT_PROMPT}",
+        f"PROMPT: {AGENT_GOVERNANCE_PROMPT if settings.authority == 'agent' else HUMAN_GOVERNANCE_PROMPT}",
     ]
