@@ -1,65 +1,82 @@
 # Invariant
 
-Invariant preserves accepted architectural meaning while people and agents change a Git repository.
-It is a standalone Python CLI: Codex, another agent, CI, or a person can invoke the same local
-command contract.
+Invariant discovers and maintains durable architectural intent across long-running agentic work.
 
-- **Semantics** carries prose judgment: requested meaning, relevant domains, discoveries, and
-  architecture review.
-- **Mechanics** derives exact repository facts: reach, digests, freshness, candidate trees, checks,
-  and compare-and-swap ref updates.
-- **Lifecycle** keeps the fixed brief → isolate → implement → verify → land flow resumable.
+It connects four concerns that otherwise drift apart:
 
-![A read-only brief leads to an isolated work branch, an exact candidate tree, and verification against that tree before a compare-and-swap advances the integration ref. Tracked governance sits inside Git and feeds both the brief and verification; the ignored planning runtime sits outside it.](.github/assets/lifecycle.svg)
+- **Governed autonomy** — stable architecture and executable contracts let agents act independently
+  without weakening cross-domain promises.
+- **Guided coordination** — temporary plans, dependencies, and ownership claims steer concurrent
+  work through critical domains without becoming architecture.
+- **Progressive or intensive discovery** — repositories can learn incrementally as work exposes
+  missing context, or through a deliberate upfront audit. Findings remain evidence until resolved.
+- **Git-grounded lifecycle** — isolated work, exact-candidate verification, and atomic local landing
+  keep long-running changes stable and resumable.
+
+Durable intent is the semantic counterpart to temporal coordination: architecture and contracts
+remain after the work ends; plans, claims, and leases do not.
+
+![A Git-grounded lifecycle carries a user goal through coordination, execution, verification, conflict resolution by an agent or human, and local landing. A durable semantic layer maps domains to architecture files and contracts to contract files and checks.](.github/assets/lifecycle.svg)
+
+Invariant is a standalone Python CLI. Codex, another coding agent, CI, or a person can invoke the
+same local command contract. It verifies the exact candidate that will be integrated, advances the
+local integration branch only on success, and never pushes.
 
 The complete design is in [SPEC.md](SPEC.md).
 
 ## Install
 
-For development:
+Install Invariant as an isolated command:
 
 ```bash
-uv sync
-uv run invariant --version
-```
-
-Install the repository as an isolated command:
-
-```bash
-uv tool install .
+uv tool install invariant-cli
 ```
 
 Or install it into a Python environment:
 
 ```bash
-python -m pip install .
+python -m pip install invariant-cli
 ```
 
-After publication, the corresponding package command is `uv tool install invariant-cli`. The
-distribution is named `invariant-cli`; the executable and import package are both named
-`invariant`.
-
-The repository also keeps `bin/invariant` as a source-tree launcher. Repository-local `intent-*`
-shell scripts are deprecated compatibility adapters into the Python package; they are not included
-in the installed wheel and no longer own mechanics.
-
-## Use from Codex or a shell
-
-Codex does not need a custom integration or an additional skill. Agent instructions can tell it to
-invoke the CLI, use normal editing tools on the returned work branch, and provide semantic decisions
-when requested. Applications should select JSON output:
+Confirm the installation:
 
 ```bash
-invariant --format json task begin retry-handling \
-  --goal "Add retry handling to document processing" \
-  --posture local \
-  --boundary no-record \
-  --path src/processing
+invariant --version
 ```
 
-Humans may use the same command with text output. `task begin` creates a disposable Git-local
-receipt and enters a generated `intent/work/...` branch. After committing the implementation,
-prepare an assessment:
+## Develop with Invariant
+
+Ask Codex or another coding agent to use Invariant for a repository change. The agent identifies the
+relevant paths and any existing domains, reads applicable architecture and contracts, works on an
+isolated branch, verifies the resulting candidate, and lands it locally when every requirement
+passes.
+
+```text
+You:
+Add retry recovery to document processing. Use Invariant.
+
+Codex:
+1. Opens the task against the relevant paths and any applicable domains.
+2. Reads the architecture, contracts, and discoveries that could affect the change.
+3. Implements and commits the change on an isolated work branch.
+4. Reviews the exact candidate and runs affected checks.
+5. Lands the change locally when every requirement passes.
+```
+
+Codex does not need a custom integration or plugin. A consuming repository can copy
+[AGENTS.example.md](AGENTS.example.md) into its always-loaded agent instructions to make this the
+default development workflow.
+
+## A complete task
+
+Start with the user-visible goal and the paths currently known to be relevant:
+
+```bash
+invariant task begin retry-recovery \
+  --goal "Recover interrupted document-processing jobs" \
+```
+
+Before finishing, describe the candidate in an assessment:
 
 ```yaml
 version: 1
@@ -74,123 +91,143 @@ architecture_reviews: []
 checks: []
 ```
 
-Then finish the fixed lifecycle:
+Then finish the task:
 
 ```bash
-invariant task finish retry-handling --assessment /tmp/retry-handling.yml
+invariant task finish retry-recovery --assessment /tmp/retry-recovery.yml
 ```
 
-Invariant reconstructs the prospective integration tree, recomputes reach, performs required
-semantic gates, runs checks against that tree, atomically advances the local integration ref, and
-cleans the completed task. It never pushes.
+Invariant reconstructs the prospective integration tree, recomputes its architectural reach, runs
+the affected checks and reviews against that exact tree, and atomically advances the local
+integration branch. If review or verification fails, the integration branch is untouched and the
+work branch remains recoverable.
 
-## Optional semantic bookends
+For applications and agent harnesses, add `--format json` to receive structured output.
 
-The core lifecycle always preserves durable repository intent. Two optional flags add task-specific
-precision before and after it without changing the middle:
+## Optional intent clarification
+
+Most tasks can begin from the user's prose. When a request needs sharper task-level agreement,
+Invariant can preserve an expanded intent document containing outcomes, acceptance criteria, and
+constraints before implementation. An optional outcome review then evaluates those acceptance IDs
+against the exact candidate tree.
 
 ```yaml
 version: 1
-resolution: assisted
-execution: auto
-integration_branch: main
-lifecycle:
-  intent_expansion: false
-  outcome_review: false
+goal: Recover active jobs when the application restarts.
+outcomes:
+  - id: O1
+    prose: Non-terminal jobs are visible after restart.
+acceptance:
+  - id: A1
+    prose: Each non-terminal job is restored exactly once.
+constraints:
+  - id: C1
+    prose: Session-only events are not restored.
 ```
 
-- `intent_expansion` requires a versioned prose record with stable outcome, acceptance, and
-  constraint IDs before implementation. Pass it to `task begin --intent <file>`.
-- `outcome_review` requires the finish assessment to map those acceptance IDs to `satisfied`,
-  `not-satisfied`, or `unresolved` against the exact candidate tree.
+Pass the document to `task begin --intent <file>`. Enable outcome review with
+`--outcome-review`. Expanded task intent guides one change; it is not permanent repository
+architecture.
 
-Both default off. They are semantic bookends, not replacements for briefing, durable-meaning
-review, verification, or landing. Run `invariant task guidance <task-id>` to compile the free-form
-brief, semantic-reasoning, repository-archaeology, discovery, coordination, and landing guidance
-relevant to the current stage.
+## Discover an existing repository
 
-The compiled context deliberately keeps prose first-class. Stable IDs, paths, and domains are
-retrieval coordinates; they do not replace interpretation. For the active task, the CLI includes
-the full expanded intent when enabled, the exact selected architecture sections from the task's
-accepted integration ground, and the observation and causal basis of relevant discoveries. The
-reasoning guide then asks the host to distinguish requested meaning, accepted meaning, and observed
-behavior; trace responsibility, reliance, state, time, and failure; triangulate code, tests,
-schemas, configuration, documentation, history, and operations; and preserve contradictions or
-meaningful absences as explicit discoveries.
+Invariant does not require a complete architecture model up front. It supports two ways to learn an
+existing codebase.
 
-This restores depth without coupling semantics to the lifecycle. Context selection and exact-tree
-retrieval are deterministic mechanics. Interpretation remains free-form prose, and the lifecycle
-only decides when that compiled context is presented.
+### Progressive by default
 
-## Progressive discovery
+Begin with real work and inspect outward only while new evidence could change the implementation,
+architectural judgment, or verification. This is the normal mode for feature work, maintenance,
+unfamiliar code paths, and gradual adoption.
 
-A discovery records an observation, its causal basis, its relevance, and its disposition:
-
-```yaml
-version: 1
-id: missing-recovery-record
-observation: No document explains ownership after process restart.
-basis:
-  ground: <commit>
-  tree: <tree>
-  searched: [docs, src/jobs]
-  prose: Repository-wide search found behavior but no decision record.
-relevance:
-  domains: [jobs]
-  paths: [src/jobs]
-  related: [task:document-recovery]
-disposition:
-  state: open
-```
-
-Discoveries are evidence, never authority. A resolved discovery can point to a domain, contract,
-architecture section, another discovery, a repository path, or follow-up task—or close with prose
-and no new artifact. Missing ADRs, absent documentation, contradictions, implicit dependencies, and
-meaningful absences are therefore representable without pretending every finding is a contract.
+When work exposes an implicit decision, contradiction, undocumented dependency, or meaningful
+absence, capture it as a discovery:
 
 ```bash
 invariant evidence discovery capture missing-recovery-record \
-  --observation "No document explains ownership after restart." \
-  --searched docs --searched src/jobs --domain jobs
-
-invariant evidence discovery resolve missing-recovery-record \
-  --prose "Documentation work is tracked separately." \
-  --output task:document-recovery
+  --observation "No document explains ownership after process restart." \
+  --searched docs \
+  --searched src/jobs \
+  --path src/jobs
 ```
 
-## Repository and package layout
+A discovery is evidence, not authority. Invariant does not automatically rewrite architecture from
+a finding. Resolution can guide the smallest appropriate change to an existing domain,
+architecture section, contract, implementation, test, documentation, follow-up task, or no artifact
+at all. Only a normally reviewed, verified, and landed change becomes durable repository intent.
+
+### Optional full audit
+
+A full audit is an explicit broader investigation of the repository or a selected subsystem. It is
+useful when introducing Invariant to an established repository, preparing a large migration, or
+examining unclear ownership and risky integration boundaries.
+
+```bash
+invariant evidence audit full
+```
+
+An audit records what was inspected and what was found. Like a progressive discovery, it does not
+manufacture architecture; its findings remain evidence until intentionally resolved.
+
+## Files and terms
+
+Invariant adds only the state a repository needs:
 
 ```text
-src/invariant/
-  semantics/        prose models, discoveries, and stage guidance
-  mechanics/        deterministic Git, state, cache, audit, and landing operations
-  lifecycle/        fixed task state machine
-  cli/              argument and output adapters
-
-.invariant/
-  config.yml        optional repository configuration
-  DOMAINS.yml       accepted responsibilities and architecture/contract pointers
-  CONTRACTS.yml     accepted executable cross-domain promises
-  discoveries/      tracked non-authoritative discovery evidence
-  audits/            tracked non-authoritative audit evidence
-  runtime/           ignored active plans and leases
+your-repository/
+├── .invariant/
+│   ├── config.yml        optional repository configuration
+│   ├── DOMAINS.yml       stable responsibilities and architecture pointers
+│   ├── CONTRACTS.yml     executable promises between responsibilities
+│   ├── discoveries/      non-authoritative evidence from ongoing work
+│   └── audits/           non-authoritative broader investigations
+└── docs/
+    └── architecture.md   ordinary Markdown remains the source of truth
 ```
 
-Architecture prose remains canonical in anchored Markdown. Receipts live under
-`<git-common-dir>/invariant/briefs/`; they cache integrity and semantic scope but hold no authority.
-An unrelated mergeable integration advance can refresh a receipt. Changed selected governance,
-expanded scope, changed brief-dependency mechanics, or a conflict invalidates the affected reuse.
-Edits to stage guidance, landing, coordination, or output formatting do not evict the semantic
-envelope; those concerns reload or recompute independently. Candidate verification always binds to
-the exact tree being landed.
+- **Domain:** a stable area of responsibility, not necessarily a directory.
+- **Architecture:** Markdown that preserves ownership, rationale, state, failure behavior, and
+  important restrictions.
+- **Contract:** a promise one responsibility relies on from another, connected to executable
+  verification.
+- **Discovery:** non-authoritative evidence about something missing, contradictory, or not yet
+  understood.
+- **Audit:** a causally grounded record of what was inspected and found.
+- **Task intent:** optional outcomes and acceptance criteria for one local change.
+- **Coordination:** temporary dependencies and ownership while parallel work is active.
 
-## Development
+The short form is:
+
+```text
+request
+  → retrieve relevant architecture, contracts, and discoveries
+  → investigate, coordinate, and implement
+  → review architectural impact and run affected checks
+  → converge safely
+
+uncertainty
+  → discovery evidence
+  → intentional resolution
+  → architecture, contract, code, tests, documentation, follow-up, or no action
+```
+
+## Contributing to Invariant
+
+Set up the source tree:
+
+```bash
+uv sync
+uv run invariant --version
+```
+
+Run the complete verification suite:
 
 ```bash
 for test_file in tests/test-*.sh; do sh "$test_file" || exit; done
 uv run pytest
-uv build
+uv build --no-sources
 ```
 
-Copy [AGENTS.example.md](AGENTS.example.md) into a consuming repository's always-loaded agent
-instructions to bind Codex or another coding agent to the lifecycle.
+The package implementation lives under `src/invariant/`. Repository-local `intent-*` shell scripts
+are deprecated compatibility adapters into that package and are not included in the installed
+wheel.
