@@ -55,8 +55,9 @@ From the repository root, run:
 invariant init
 ```
 
-Interactive setup explains each repository setting before asking for a value. It configures Codex,
-Claude Code, or both; writes the selected values to `.invariant/config.yml`; and safely adds a
+Interactive setup explains each repository setting and uses arrow-key radio choices. The optional
+named integration branch remains a text field. Setup configures Codex, Claude Code, or both; writes
+the selected values to `.invariant/config.yml`; and safely adds a
 managed Invariant workflow to the applicable root instruction files without replacing existing
 content.
 

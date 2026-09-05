@@ -5,6 +5,8 @@ import os
 import sys
 import textwrap
 from collections.abc import Sequence
+from contextlib import contextmanager
+from typing import Callable, Iterator
 
 from invariant.errors import UsageError
 from invariant.lifecycle import bootstrap
@@ -34,31 +36,125 @@ def _select(
     default: str,
 ) -> str:
     print(f"\n{_color('1;36', f'◆ {title}')}\n  {question}\n")
-    by_value = {value: (index, label) for index, (value, label, _) in enumerate(options, 1)}
-    for index, (value, label, detail) in enumerate(options, 1):
-        marker = "●" if value == default else "○"
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        return _radio_select(options, default)
+    return _line_select(options, default)
+
+
+def _option_lines(
+    options: Sequence[tuple[str, str, str]], selected: int, default: str
+) -> list[str]:
+    output: list[str] = []
+    for index, (value, label, _) in enumerate(options):
+        active = index == selected
+        marker = "●" if active else "○"
         suffix = " (recommended)" if value == default else ""
-        marker = _color("32" if value == default else "2", marker)
-        number = _color("36" if value == default else "2", f"{index}.")
-        option = _color("1", label) if value == default else label
+        marker = _color("36" if active else "2", marker)
+        option = _color("1;36", label) if active else label
         recommendation = _color("32", suffix)
-        print(f"  {marker} {number} {option}{recommendation}")
-        print(_color("2", f"       {detail}"))
-    default_index = by_value[default][0]
+        output.append(f"  {marker} {option}{recommendation}")
+    output.append(_color("2", f"    {options[selected][2]}"))
+    output.append(_color("2", "    ↑/↓ navigate • enter select"))
+    return output
+
+
+def _draw(lines: Sequence[str], *, redraw: bool) -> None:
+    if redraw:
+        sys.stdout.write(f"\033[{len(lines)}A")
+    for line in lines:
+        sys.stdout.write(f"\r\033[2K{line}\n")
+    sys.stdout.flush()
+
+
+def _read_terminal_key() -> str:
+    if os.name == "nt":
+        import msvcrt
+
+        key = msvcrt.getwch()
+        if key in {"\x00", "\xe0"}:
+            return key + msvcrt.getwch()
+        return key
+    key = sys.stdin.read(1)
+    if key == "\x1b":
+        return key + sys.stdin.read(2)
+    return key
+
+
+@contextmanager
+def _terminal_keys() -> Iterator[Callable[[], str]]:
+    if os.name == "nt":
+        yield _read_terminal_key
+        return
+    import termios
+    import tty
+
+    descriptor = sys.stdin.fileno()
+    previous = termios.tcgetattr(descriptor)
+    try:
+        tty.setraw(descriptor)
+        yield _read_terminal_key
+    finally:
+        termios.tcsetattr(descriptor, termios.TCSADRAIN, previous)
+
+
+def _radio_select(
+    options: Sequence[tuple[str, str, str]],
+    default: str,
+    *,
+    key_reader: Callable[[], str] | None = None,
+) -> str:
+    selected = next(index for index, option in enumerate(options) if option[0] == default)
+
+    def choose(read_key: Callable[[], str]) -> str:
+        nonlocal selected
+        lines = _option_lines(options, selected, default)
+        _draw(lines, redraw=False)
+        while True:
+            key = read_key()
+            if key in {"\x03"}:
+                raise UsageError("Invariant: initialization cancelled")
+            if key in {"\x1b[A", "\x00H", "\xe0H", "k"}:
+                selected = (selected - 1) % len(options)
+            elif key in {"\x1b[B", "\x00P", "\xe0P", "j"}:
+                selected = (selected + 1) % len(options)
+            elif key in {"\r", "\n"}:
+                return options[selected][0]
+            else:
+                continue
+            lines = _option_lines(options, selected, default)
+            _draw(lines, redraw=True)
+
+    sys.stdout.write("\033[?25l")
+    sys.stdout.flush()
+    try:
+        if key_reader is not None:
+            return choose(key_reader)
+        with _terminal_keys() as read_key:
+            return choose(read_key)
+    finally:
+        sys.stdout.write("\033[?25h")
+        sys.stdout.flush()
+
+
+def _line_select(options: Sequence[tuple[str, str, str]], default: str) -> str:
+    by_value = {value: label for value, label, _ in options}
+    selected = next(index for index, option in enumerate(options) if option[0] == default)
+    for line in _option_lines(options, selected, default)[:-1]:
+        print(line)
     while True:
         try:
-            answer = input(f"\n  {_color('36', '›')} Select [{default_index}]: ").strip()
+            answer = input(
+                f"\n  {_color('36', '›')} Choice [{by_value[default]}]: "
+            ).strip()
         except EOFError:
             raise UsageError(
                 "Invariant: interactive initialization needs terminal input; use invariant init --defaults"
             ) from None
         if not answer:
             return default
-        if answer.isdigit() and 1 <= int(answer) <= len(options):
-            return options[int(answer) - 1][0]
         if answer in by_value:
             return answer
-        print(_color("33", f"  Choose 1-{len(options)} or enter one of: {', '.join(by_value)}"))
+        print(_color("33", f"  Enter one of: {', '.join(by_value)}"))
 
 
 def _logo() -> None:

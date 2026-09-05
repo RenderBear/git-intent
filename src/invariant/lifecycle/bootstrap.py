@@ -12,16 +12,7 @@ from invariant.semantics import guidance
 
 START = "<!-- invariant:workflow:start -->"
 END = "<!-- invariant:workflow:end -->"
-AGENT_GOVERNANCE_PROMPT = (
-    "Run 'invariant initial-governance begin initial-governance', investigate the repository, save the audit, "
-    "then adopt and land the initial domains, architecture references, and executable contracts "
-    "without routine approval pauses. Escalate only decisions outside your authority."
-)
-HUMAN_GOVERNANCE_PROMPT = (
-    "Run 'invariant initial-governance begin initial-governance', investigate the repository and save the audit, "
-    "then give me a concise findings summary and clear choices to investigate further, adopt all "
-    "ready findings, adopt selected findings, or defer adoption."
-)
+INITIAL_GOVERNANCE_PROMPT = "Run the initial governance for the repository with Invariant."
 
 
 @dataclass(frozen=True)
@@ -146,8 +137,5 @@ def initialize(repo: Path, settings: BootstrapSettings) -> list[str]:
         f"PUSH-REMOTE: {settings.push_remote}",
         f"TASK-ACCEPTANCE-ADAPTER: {'on' if settings.task_acceptance else 'off'}",
         *instruction_lines,
-        (
-            "RECOMMENDED: Ask your coding agent to run Invariant's initial governance workflow."
-        ),
-        f"PROMPT: {AGENT_GOVERNANCE_PROMPT if settings.authority == 'agent' else HUMAN_GOVERNANCE_PROMPT}",
+        f"PROMPT: {INITIAL_GOVERNANCE_PROMPT}",
     ]

@@ -337,8 +337,9 @@ execution is the ergonomic default; it does not remove briefing, branch isolatio
 verification, or atomic landing. Neither execution mode weakens validation or grants external
 authority.
 
-`invariant init` is the repository bootstrap. Interactive invocation explains and collects each
-setting; `--defaults` selects both coding agents and every safe default without prompting. It creates
+`invariant init` is the repository bootstrap. Interactive invocation explains each setting and uses
+arrow-key radio selection; only a named integration branch requires free-form typing. `--defaults`
+selects both coding agents and every safe default without prompting. It creates
 `.invariant/config.yml`, installs or updates a marked workflow block in the selected root agent
 instruction files, and prints a natural-language request for the coding agent to run initial
 governance. It never runs a model itself. Existing unrelated agent instructions are preserved, and an

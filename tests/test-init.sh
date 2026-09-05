@@ -41,7 +41,11 @@ grep -q '^## Invariant lifecycle$' "$defaults/AGENTS.md" || die "Codex workflow 
 grep -q '^# Existing Claude instructions$' "$defaults/CLAUDE.md" || die "Claude setup replaced existing instructions"
 grep -q '^@AGENTS.md$' "$defaults/CLAUDE.md" || die "Claude does not import the shared workflow"
 printf '%s\n' "$out" | grep -q '^Recommended next step$' || die "init omitted the governance recommendation"
-printf '%s\n' "$out" | grep -q "invariant initial-governance begin initial-governance" || die "init omitted the governance command"
+printf '%s\n' "$out" | grep -q '^  Run the initial governance for the repository with Invariant\.$' ||
+  die "init omitted the concise governance request"
+if printf '%s\n' "$out" | grep -q "invariant initial-governance begin initial-governance"; then
+  die "init exposed the agent protocol in its recommendation"
+fi
 printf '%s\n' "$out" | grep -q "Task adapter.*Agent's own workflow" || die "default task adapter was not explained"
 [ ! -e "$defaults/.invariant/DOMAINS.yml" ] || die "init manufactured empty domains"
 [ ! -e "$defaults/.invariant/CONTRACTS.yml" ] || die "init manufactured empty contracts"
@@ -76,6 +80,9 @@ fi
 printf '%s\n' "$out" | grep -q '^◆ Integration branch$' || die "interactive init did not explain integration branch"
 printf '%s\n' "$out" | grep -q 'Resolve the target when each task begins' || die "automatic branch behavior was not explained"
 printf '%s\n' "$out" | grep -q '^◆ Task adapter$' || die "interactive init omitted the bundled adapter choice"
+if printf '%s\n' "$out" | grep -Eq '^  [●○] [0-9]+\.'; then
+  die "interactive init rendered numbered radio options"
+fi
 ok "interactive init explains and persists each repository choice"
 
 ambiguous="$fixtures/ambiguous"
