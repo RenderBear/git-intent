@@ -8,7 +8,7 @@ from invariant.mechanics import config, git, landing
 
 def _configuration(push_remote: str, branch: str = "main") -> config.Config:
     return config.Config(
-        harnesses=("claude", "codex"),
+        coding_agents=("codex", "claude"),
         resolution="assisted",
         execution="auto",
         integration_branch=branch,

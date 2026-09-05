@@ -14,7 +14,7 @@ from invariant.mechanics.documents import dump_yaml, load_yaml
 
 CONFIG_PATH = Path(".invariant/config.yml")
 SETTABLE_KEYS = {
-    "harnesses",
+    "coding_agents",
     "resolution",
     "execution",
     "integration_branch",
@@ -22,7 +22,7 @@ SETTABLE_KEYS = {
     "lifecycle.intent_expansion",
     "lifecycle.outcome_review",
 }
-HARNESS_CHOICES = {"claude", "codex"}
+CODING_AGENT_CHOICES = {"claude", "codex"}
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ class LifecycleOptions:
 
 @dataclass(frozen=True)
 class Config:
-    harnesses: tuple[str, ...]
+    coding_agents: tuple[str, ...]
     resolution: str
     execution: str
     integration_branch: str
@@ -70,7 +70,7 @@ def _from_raw(
         raise InvariantError("Invariant: .invariant/config.yml must declare version: 1")
     allowed = {
         "version",
-        "harnesses",
+        "coding_agents",
         "resolution",
         "execution",
         "integration_branch",
@@ -80,17 +80,17 @@ def _from_raw(
     unknown = sorted(set(raw) - allowed)
     if unknown:
         raise InvariantError(f"Invariant: .invariant/config.yml has unknown field '{unknown[0]}'")
-    harnesses_raw = raw.get("harnesses", ["codex", "claude"])
+    agents_raw = raw.get("coding_agents", ["codex", "claude"])
     if (
-        not isinstance(harnesses_raw, list)
-        or not harnesses_raw
-        or any(not isinstance(item, str) or item not in HARNESS_CHOICES for item in harnesses_raw)
+        not isinstance(agents_raw, list)
+        or not agents_raw
+        or any(not isinstance(item, str) or item not in CODING_AGENT_CHOICES for item in agents_raw)
     ):
         raise InvariantError(
-            "Invariant: .invariant/config.yml harnesses must be a non-empty list containing codex or claude"
+            "Invariant: .invariant/config.yml coding_agents must be a non-empty list containing codex or claude"
         )
-    selected_harnesses = set(harnesses_raw)
-    harnesses = tuple(item for item in ("codex", "claude") if item in selected_harnesses)
+    selected_agents = set(agents_raw)
+    coding_agents = tuple(item for item in ("codex", "claude") if item in selected_agents)
     resolution = raw.get("resolution", "assisted")
     if resolution not in {"assisted", "auto"}:
         raise InvariantError(
@@ -134,7 +134,7 @@ def _from_raw(
         branch_source = "config"
     return _finish(
         repo,
-        harnesses,
+        coding_agents,
         resolution,
         execution,
         branch,
@@ -211,7 +211,7 @@ def resolve_at(repo: Path, ref: str, integration_branch: str) -> Config:
 def _document(config: Config) -> dict[str, Any]:
     return {
         "version": 1,
-        "harnesses": list(config.harnesses),
+        "coding_agents": list(config.coding_agents),
         "resolution": config.resolution,
         "execution": config.execution,
         "integration_branch": config.integration_branch_setting,
@@ -226,7 +226,7 @@ def _document(config: Config) -> dict[str, Any]:
 def initialize(
     repo: Path,
     *,
-    harnesses: tuple[str, ...] | None = None,
+    coding_agents: tuple[str, ...] | None = None,
     resolution: str | None = None,
     execution: str | None = None,
     integration_branch: str | None = None,
@@ -244,7 +244,7 @@ def initialize(
         fallback_branch, fallback_source = branch_setting, "config"
     document: dict[str, Any] = {
         "version": 1,
-        "harnesses": list(harnesses if harnesses is not None else ("codex", "claude")),
+        "coding_agents": list(coding_agents if coding_agents is not None else ("codex", "claude")),
         "resolution": resolution if resolution is not None else "assisted",
         "execution": execution if execution is not None else "auto",
         "integration_branch": branch_setting,
@@ -279,11 +279,11 @@ def set_value(repo: Path, key: str, value: str) -> list[str]:
         current = resolve(repo)
         document = _document(current)
 
-    if key == "harnesses":
+    if key == "coding_agents":
         values = [item.strip() for item in value.split(",") if item.strip()]
-        if not values or any(item not in HARNESS_CHOICES for item in values):
+        if not values or any(item not in CODING_AGENT_CHOICES for item in values):
             raise InvariantError(
-                "Invariant: harnesses must be a comma-separated list containing codex or claude",
+                "Invariant: coding_agents must be a comma-separated list containing codex or claude",
                 code="invalid_config_value",
             )
         selected = set(values)
@@ -325,7 +325,7 @@ def set_value(repo: Path, key: str, value: str) -> list[str]:
 
 def _finish(
     repo: Path,
-    harnesses: tuple[str, ...],
+    coding_agents: tuple[str, ...],
     resolution: str,
     execution: str,
     branch: str,
@@ -347,7 +347,7 @@ def _finish(
         if not allowed_unborn:
             raise InvariantError(f"Invariant: configured integration branch '{branch}' does not exist locally")
     return Config(
-        harnesses,
+        coding_agents,
         resolution,
         execution,
         branch,
@@ -363,7 +363,7 @@ def _finish(
 def lines(config: Config) -> list[str]:
     output = [
         "version: 1",
-        f"harnesses: {', '.join(config.harnesses)}",
+        f"coding_agents: {', '.join(config.coding_agents)}",
         f"resolution: {config.resolution}",
         f"execution: {config.execution}",
         f"integration_branch: {config.integration_branch_setting}",

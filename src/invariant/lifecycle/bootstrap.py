@@ -13,14 +13,15 @@ from invariant.semantics import guidance
 START = "<!-- invariant:workflow:start -->"
 END = "<!-- invariant:workflow:end -->"
 AUDIT_PROMPT = (
-    "Audit this repository with Invariant. Propose the initial domains, architecture references, "
-    "and executable contracts, and pause only when my semantic authority is required."
+    "Conduct a full repository audit with Invariant. Investigate without interrupting me, then "
+    "present one consolidated proposal for the initial domains, architecture references, and "
+    "executable contracts."
 )
 
 
 @dataclass(frozen=True)
 class BootstrapSettings:
-    harnesses: tuple[str, ...] = ("codex", "claude")
+    coding_agents: tuple[str, ...] = ("codex", "claude")
     resolution: str = "assisted"
     execution: str = "auto"
     integration_branch: str = "auto"
@@ -75,8 +76,8 @@ def _write(path: Path, text: str) -> None:
             pending.unlink()
 
 
-def _instruction_updates(repo: Path, harnesses: tuple[str, ...]) -> dict[Path, str]:
-    selected = set(harnesses)
+def _instruction_updates(repo: Path, coding_agents: tuple[str, ...]) -> dict[Path, str]:
+    selected = set(coding_agents)
     workflow = guidance.read("workflow")
     updates: dict[Path, str] = {}
     agents = repo / "AGENTS.md"
@@ -109,10 +110,10 @@ def _instruction_updates(repo: Path, harnesses: tuple[str, ...]) -> dict[Path, s
 
 
 def initialize(repo: Path, settings: BootstrapSettings) -> list[str]:
-    updates = _instruction_updates(repo, settings.harnesses)
-    config_lines = config.initialize(
+    updates = _instruction_updates(repo, settings.coding_agents)
+    config.initialize(
         repo,
-        harnesses=settings.harnesses,
+        coding_agents=settings.coding_agents,
         resolution=settings.resolution,
         execution=settings.execution,
         integration_branch=settings.integration_branch,
@@ -122,17 +123,26 @@ def initialize(repo: Path, settings: BootstrapSettings) -> list[str]:
     )
     for path, text in updates.items():
         _write(path, text)
+    resolved = config.resolve(repo)
 
     instruction_lines = [
         f"INSTRUCTIONS: configured {path.relative_to(repo).as_posix()}" for path in updates
     ]
-    if "claude" in settings.harnesses and "codex" in settings.harnesses and not any(
+    if "claude" in settings.coding_agents and "codex" in settings.coding_agents and not any(
         path.name == "CLAUDE.md" for path in updates
     ):
         instruction_lines.append("INSTRUCTIONS: CLAUDE.md already imports AGENTS.md")
     return [
         "INITIALIZED: repository",
-        *config_lines,
+        f"CONFIG: {config.CONFIG_PATH.as_posix()}",
+        f"CODING-AGENTS: {', '.join(settings.coding_agents)}",
+        f"RESOLUTION: {settings.resolution}",
+        f"EXECUTION: {settings.execution}",
+        f"INTEGRATION-BRANCH: {resolved.integration_branch}",
+        f"INTEGRATION-BRANCH-SETTING: {settings.integration_branch}",
+        f"PUSH-REMOTE: {settings.push_remote}",
+        f"INTENT-EXPANSION: {'on' if settings.intent_expansion else 'off'}",
+        f"OUTCOME-REVIEW: {'on' if settings.outcome_review else 'off'}",
         *instruction_lines,
         (
             "RECOMMENDED: Ask your coding agent to conduct a full audit with Invariant to establish "

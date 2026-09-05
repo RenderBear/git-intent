@@ -72,6 +72,10 @@ optional lifecycle bookends disabled. Initialization does not run an audit; afte
 recommended natural-language request for your coding agent to conduct a full audit and establish
 the initial domains, architecture references, and executable contracts.
 
+Interactive setup presents the two optional intent controls as one choice. The default is
+model-led: it relies on the coding agent's own understanding and normal candidate review. A
+repository can instead add a custom pre-step, a custom post-step, or both.
+
 ## Use Invariant
 
 Invariant does not contain or connect to a model. Codex, Claude Code, or another coding harness
@@ -120,7 +124,7 @@ Its effective defaults are:
 
 ```yaml
 version: 1
-harnesses: [codex, claude]
+coding_agents: [codex, claude]
 resolution: assisted
 execution: auto
 integration_branch: auto
@@ -135,20 +139,20 @@ Settings:
 | Setting | Default | Values | What it controls |
 |---|---|---|---|
 | `version` | `1` | `1` | Configuration schema version. It is fixed and not user-configurable. |
-| `harnesses` | `[codex, claude]` | Any non-empty subset of `codex`, `claude` | Which root agent instruction files receive the managed Invariant workflow during initialization. |
+| `coding_agents` | `[codex, claude]` | Any non-empty subset of `codex`, `claude` | Which root agent instruction files receive the managed Invariant workflow during initialization. |
 | `resolution` | `assisted` | `assisted`, `auto` | Whether consequential semantic ambiguity needs a human or may be settled by an agent acting within accepted authority. |
 | `execution` | `auto` | `auto`, `assisted` | Whether state-changing lifecycle transitions run immediately or pause for explicit continuation. |
 | `integration_branch` | `auto` | `auto`, local branch name | The branch that receives verified landings. `auto` uses the current branch when a task begins; a name fixes one local convergence target. |
 | `push_remote` | `off` | `off`, `on` | Whether a successful landing stays local or pushes the exact verified commit to the integration branch's existing upstream. |
-| `lifecycle.intent_expansion` | `false` | `false`, `true` | Whether work pauses for explicit outcomes, acceptance criteria, and constraints before implementation. Set with `off` or `on` through the CLI. |
-| `lifecycle.outcome_review` | `false` | `false`, `true` | Whether those outcomes must be assessed against the exact candidate before landing. Set with `off` or `on` through the CLI. |
+| `lifecycle.intent_expansion` | `false` | `false`, `true` | Optional custom pre-step: define explicit outcomes, acceptance criteria, and constraints before implementation. Set with `off` or `on` through the CLI. |
+| `lifecycle.outcome_review` | `false` | `false`, `true` | Optional custom post-step: assess the goal or expanded outcomes against the exact candidate before landing. Set with `off` or `on` through the CLI. |
 
 All selections live in `.invariant/config.yml`. Edit that tracked file directly or inspect and update
 validated settings through the CLI:
 
 ```bash
 invariant config show
-invariant config set harnesses codex,claude
+invariant config set coding_agents codex,claude
 invariant config set execution assisted
 invariant config set integration_branch auto
 invariant config set integration_branch main
@@ -163,10 +167,11 @@ deepen it progressively.
 
 ### Start with a full audit (recommended)
 
-Ask your coding agent to audit the repository with Invariant. The agent identifies responsibilities,
-boundaries, dependencies, and executable promises, then proposes the domains, architecture
-references, and contracts that should govern future work. The human resolves those proposals;
-accepted changes establish the repository's durable semantic layer.
+Ask your coding agent to conduct a full repository audit with Invariant. The audit is read-only: the
+agent investigates responsibilities, boundaries, dependencies, and executable promises, then
+presents one consolidated proposal. `resolution` controls whether adoption needs human approval;
+`execution` controls the branch, verification, and landing that establish approved records as the
+repository's durable semantic layer.
 
 ### Continue with progressive discovery
 

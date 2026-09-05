@@ -248,7 +248,7 @@ Tracked repository configuration remains small:
 
 ```yaml
 version: 1
-harnesses: [codex, claude]
+coding_agents: [codex, claude]
 resolution: assisted
 execution: auto
 integration_branch: auto
@@ -258,7 +258,7 @@ lifecycle:
   outcome_review: false
 ```
 
-`harnesses` records the non-empty set of supported coding harnesses configured during repository
+`coding_agents` records the non-empty set of supported coding agents configured during repository
 initialization. It controls instruction-file setup, not semantic authority or model execution.
 
 `resolution` governs semantic authority:
@@ -295,14 +295,21 @@ after local landing reports a blocked publication while retaining the local inte
 - `assisted` presents state-changing transitions before applying them and waits for explicit
   continuation.
 
-Absence means both supported harnesses, `resolution: assisted`, `execution: auto`,
+A full audit is read-only investigation, so `execution` does not gate it. Adoption separates the
+two controls: `resolution` determines whether findings need human semantic approval, while
+`execution` determines whether the resulting task branch, verification, and landing advance
+automatically. With assisted resolution and automatic execution, the agent completes the audit,
+presents one consolidated proposal, and—after approval—runs the resulting repository changes
+through the normal task lifecycle without routine Git prompts.
+
+Absence means both supported coding agents, `resolution: assisted`, `execution: auto`,
 `integration_branch: auto`, `push_remote: off`, and disabled optional lifecycle bookends. Automatic
 execution is the ergonomic default; it does not remove briefing, branch isolation, exact-tree
 verification, or atomic landing. Neither execution mode weakens validation or grants external
 authority.
 
 `invariant init` is the repository bootstrap. Interactive invocation explains and collects each
-setting; `--defaults` selects both harnesses and every safe default without prompting. It creates
+setting; `--defaults` selects both coding agents and every safe default without prompting. It creates
 `.invariant/config.yml`, installs or updates a marked workflow block in the selected root agent
 instruction files, and prints a natural-language recommendation to ask the coding agent for a full
 audit. It never runs that audit itself. Existing unrelated agent instructions are preserved, and an
@@ -311,14 +318,16 @@ ambiguous unmanaged Invariant section blocks initialization before project state
 `invariant config show` displays configured and resolved values without creating state.
 `invariant config init` remains the lower-level configuration-only initializer.
 `invariant config set <key> <value>` updates one validated setting atomically. The settable keys are
-`harnesses`, `resolution`, `execution`, `integration_branch`, `push_remote`,
+`coding_agents`, `resolution`, `execution`, `integration_branch`, `push_remote`,
 `lifecycle.intent_expansion`, and `lifecycle.outcome_review`. Version `1` is the configuration schema
 marker, not an operational setting.
 
-The two `lifecycle` switches are optional semantic bookends. `intent_expansion` requires stable
-task-local outcome, acceptance, and constraint IDs before implementation. `outcome_review` requires
-those IDs to be assessed against the exact prospective tree before landing. Both default to false.
-They add precision at the edges without changing the durable-intent workflow in the middle.
+The two `lifecycle` switches are optional semantic bookends, presented as one setup choice. The
+model-led default leaves both disabled and relies on the coding agent's own understanding plus
+normal candidate review. `intent_expansion` adds a custom pre-step with stable task-local outcome,
+acceptance, and constraint IDs; `outcome_review` adds a custom post-step that assesses the goal or
+those IDs against the exact prospective tree. A repository may enable either step or both without
+changing the durable-intent workflow in the middle.
 
 ## 7. Semantic model
 

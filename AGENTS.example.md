@@ -41,6 +41,11 @@ are executable cross-domain promises. Audits and discoveries are evidence, never
 discovery records observation, causal basis, relevance, and disposition; it may resolve to
 architecture, governance, implementation, documentation, tests, follow-up work, or no artifact.
 
+For a full audit, investigate the repository without interrupting the human for code-level details,
+then present one consolidated semantic proposal. The audit itself is read-only. `resolution`
+controls approval of its adoption; `execution` controls the branch, verification, and landing of
+the approved repository changes.
+
 When repository work exposes a potential discovery, assemble its paths, searched scope, evidence,
 and relevance without asking the human for code-level details. Under `resolution: assisted`, the
 first capture or resolution attempt returns an approval proposal without mutating tracked state.
