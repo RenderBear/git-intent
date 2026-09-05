@@ -45,8 +45,16 @@ printf '%s\n' "$audit_schema" | grep -q '"required":\["id","summary","evidence",
   die "audit schema did not expose required finding fields"
 assessment_schema=$(cd "$governance" && "$cli" --format json task assessment schema)
 printf '%s\n' "$assessment_schema" | grep -q '"allow_open"' || die "assessment schema omitted open-reach acknowledgement"
+if printf '%s\n' "$assessment_schema" | grep -q '"outcome_assessment"'; then
+  die "core assessment schema still owns adapter review fields"
+fi
+acceptance_schema=$(cd "$governance" && "$cli" --format json task acceptance schema)
+printf '%s\n' "$acceptance_schema" | grep -q '"inspection","targeted","broad"' ||
+  die "task acceptance schema omitted proportional verification levels"
+printf '%s\n' "$acceptance_schema" | grep -q '"candidate_tree"' ||
+  die "task acceptance schema omitted exact-tree review binding"
 if printf '%s\n' "$assessment_schema" | grep -q '"output"'; then die "schema JSON duplicated its text form"; fi
-ok "audit and assessment schemas are machine-readable and compact"
+ok "audit, assessment, and adapter schemas are machine-readable and compact"
 
 out=$(cd "$governance" && "$cli" initial-governance begin initial)
 printf '%s\n' "$out" | grep -q '^GOVERNANCE-PHASE: audit$' || die "initial governance did not enter its audit phase"

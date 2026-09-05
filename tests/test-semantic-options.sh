@@ -1,13 +1,14 @@
 #!/bin/sh
-# Verify the optional semantic bookends and generalized discovery ontology.
+# Verify the task acceptance adapter and generalized discovery ontology.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cli="$root/bin/invariant"
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/invariant-semantic-test.XXXXXX")
-intent_file="$fixture-intent.yml"
+contract_file="$fixture-contract.yml"
+review_file="$fixture-review.yml"
 assessment="$fixture-assessment.yml"
-cleanup() { rm -rf "$fixture" "$intent_file" "$assessment"; }
+cleanup() { rm -rf "$fixture" "$contract_file" "$review_file" "$assessment"; }
 trap cleanup EXIT HUP INT TERM
 
 git -C "$fixture" init -qb main
@@ -30,9 +31,8 @@ EOF
 cat >"$fixture/.invariant/config.yml" <<'EOF'
 version: 1
 execution: auto
-lifecycle:
-  intent_expansion: true
-  outcome_review: true
+adapters:
+  task_acceptance: true
 EOF
 cat >"$fixture/.invariant/DOMAINS.yml" <<'EOF'
 version: 1
@@ -59,16 +59,18 @@ goal='Change the source with explicit acceptance'
 goal_digest=$(printf '%s' "$goal" | git -C "$fixture" hash-object --stdin)
 if out=$(cd "$fixture" && "$cli" task begin semantic-flow --goal "$goal" \
     --path src/a.txt --domain source 2>&1); then
-  die "intent expansion was silently skipped"
+  die "task acceptance adapter was silently skipped"
 fi
-printf '%s\n' "$out" | grep -q '^STATUS: awaiting-intent-expansion$' ||
-  die "intent expansion did not expose its lifecycle gate"
+printf '%s\n' "$out" | grep -q '^STATUS: awaiting-task-acceptance$' ||
+  die "task acceptance did not expose its lifecycle gate"
 [ "$(git -C "$fixture" branch --show-current)" = main ] ||
   die "intent expansion gate created the work branch early"
-ok "intent expansion is an optional pre-implementation lifecycle gate"
+ok "task acceptance is an optional pre-implementation adapter gate"
 
-cat >"$intent_file" <<EOF
+cat >"$contract_file" <<EOF
 version: 1
+adapter: task_acceptance
+source_goal_digest: $goal_digest
 intent:
   goal: $goal
   outcomes:
@@ -80,12 +82,17 @@ intent:
   constraints:
     - id: C1
       prose: Existing repository intent remains unchanged.
+verification:
+  level: targeted
+  rationale: This bounded source change has focused repository evidence.
 EOF
 out=$(cd "$fixture" && "$cli" task begin semantic-flow --goal "$goal" \
-  --path src/a.txt --domain source --intent "$intent_file")
+  --path src/a.txt --domain source --acceptance-contract "$contract_file")
 printf '%s\n' "$out" | grep -q '^STATUS: implementing$' ||
   die "expanded task did not enter implementation"
 branch=$(printf '%s\n' "$out" | sed -n 's/^BRANCH: //p')
+[ -f "$fixture/.git/invariant/tasks/semantic-flow/adapters/task_acceptance/contract.yml" ] ||
+  die "task acceptance contract was not stored under adapter runtime"
 cat >"$fixture/docs/architecture.md" <<'EOF'
 # Architecture
 
@@ -98,8 +105,8 @@ printf '%s\n' "$guidance" | grep -q '^# Active task context$' ||
   die "compiled guidance omitted the active semantic envelope"
 printf '%s\n' "$guidance" | grep -q '^Paths (current candidate): docs/architecture.md$' ||
   die "compiled guidance preserved stale initial paths instead of current candidate paths"
-printf '%s\n' "$guidance" | grep -q '^# Expanded task intent$' ||
-  die "compiled guidance omitted the task-specific prose"
+printf '%s\n' "$guidance" | grep -q '^# Task acceptance contract$' ||
+  die "compiled guidance omitted the adapter contract"
 printf '%s\n' "$guidance" | grep -q '^# Durable semantic reasoning$' ||
   die "stage guidance omitted durable semantic reasoning"
 printf '%s\n' "$guidance" | grep -q '^# Repository archaeology$' ||
@@ -117,8 +124,8 @@ printf '%s\n' "$guidance" | grep -q 'Source recovery ownership is still implicit
   die "compiled guidance reduced discovery reasoning to an identifier"
 printf '%s\n' "$guidance" | grep -q '^# Progressive discovery$' ||
   die "stage guidance omitted progressive discovery prose"
-printf '%s\n' "$guidance" | grep -q '^# Optional outcome review$' ||
-  die "stage guidance omitted the enabled outcome review"
+printf '%s\n' "$guidance" | grep -q '^# Task acceptance adapter$' ||
+  die "stage guidance omitted the enabled adapter"
 git -C "$fixture" restore docs/architecture.md
 ok "free-form brief, discovery, coordinate, and landing prose is compiled for the active stage"
 
@@ -138,22 +145,31 @@ architecture_reviews: [architecture:docs/architecture.md#source-ownership]
 checks: []
 EOF
 if out=$(cd "$fixture" && "$cli" task finish semantic-flow --assessment "$assessment" 2>&1); then
-  die "outcome review was silently skipped"
+  die "task acceptance review was silently skipped"
 fi
 candidate_tree=$(printf '%s\n' "$out" | sed -n 's/^CANDIDATE-TREE: //p')
-[ -n "$candidate_tree" ] || die "outcome review did not identify the exact candidate tree"
+[ -n "$candidate_tree" ] || die "task acceptance review did not identify the exact candidate tree"
+[ -f "$fixture/.git/invariant/tasks/semantic-flow/adapters/task_acceptance/prepared-review.yml" ] ||
+  die "candidate-bound adapter review was not prepared under adapter runtime"
 [ "$(git -C "$fixture" show main:src/a.txt)" = one ] ||
   die "outcome gate advanced the target before review"
 
-cat >>"$assessment" <<EOF
+cat >"$review_file" <<EOF
+version: 1
+adapter: task_acceptance
+source_goal_digest: $goal_digest
 candidate_tree: $candidate_tree
-outcome_assessment:
+results:
   - satisfies: A1
     disposition: satisfied
     prose: The candidate contains the committed value.
     evidence: [repo:src/a.txt]
+  - satisfies: C1
+    disposition: satisfied
+    prose: The candidate leaves durable repository intent unchanged.
+    evidence: [inspection:.invariant]
 EOF
-out=$(cd "$fixture" && "$cli" task finish semantic-flow --assessment "$assessment")
+out=$(cd "$fixture" && "$cli" task finish semantic-flow --assessment "$assessment" --acceptance-review "$review_file")
 printf '%s\n' "$out" | grep -q '^STATUS: completed$' ||
   die "satisfied exact-tree outcome review did not complete"
 [ "$(git -C "$fixture" branch --show-current)" = main ] ||
@@ -162,7 +178,7 @@ printf '%s\n' "$out" | grep -q '^STATUS: completed$' ||
 if git -C "$fixture" show-ref --verify -q "refs/heads/$branch"; then
   die "reviewed task branch survived cleanup"
 fi
-ok "outcome review binds stable acceptance IDs to the exact candidate tree"
+ok "the bundled adapter binds proportional acceptance evidence to the exact candidate tree"
 
 (cd "$fixture" && "$cli" config set authority human >/dev/null)
 git -C "$fixture" add .invariant/config.yml

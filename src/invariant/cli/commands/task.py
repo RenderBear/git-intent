@@ -4,6 +4,7 @@ import argparse
 
 import yaml
 
+from invariant import adapters
 from invariant.cli.output import CommandResult
 from invariant.errors import UsageError
 from invariant.lifecycle import tasks
@@ -33,9 +34,16 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     begin.add_argument("--path", action="append", default=[])
     begin.add_argument("--interface", action="append", default=[])
     begin.add_argument("--domain", action="append", default=[])
-    begin.add_argument("--intent")
-    begin.add_argument("--intent-expansion", action=argparse.BooleanOptionalAction, default=None)
-    begin.add_argument("--outcome-review", action=argparse.BooleanOptionalAction, default=None)
+    begin.add_argument(
+        "--acceptance-contract",
+        help="task acceptance adapter contract; supplying it enables the adapter for this task",
+    )
+    begin.add_argument(
+        "--task-acceptance",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="override the configured task acceptance adapter for this task",
+    )
     begin.set_defaults(_handler=_begin, _command="task.begin")
 
     status = commands.add_parser("status")
@@ -61,6 +69,10 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     )
     finish.add_argument("--subject")
     finish.add_argument("--check", action="append", default=[])
+    finish.add_argument(
+        "--acceptance-review",
+        help="candidate-bound task acceptance review (defaults to the Git-local prepared review)",
+    )
     finish.set_defaults(_handler=_finish, _command="task.finish")
 
     continuation = commands.add_parser("continue")
@@ -95,6 +107,23 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         _handler=_assessment_prepare, _command="task.assessment.prepare"
     )
 
+    acceptance = commands.add_parser(
+        "acceptance", help="Inspect the bundled task acceptance adapter protocol"
+    )
+    acceptances = acceptance.add_subparsers(dest="acceptance_command", required=True)
+    acceptance_schema = acceptances.add_parser(
+        "schema", help="Print the contract and review schemas"
+    )
+    acceptance_schema.set_defaults(
+        _handler=_acceptance_schema, _command="task.acceptance.schema"
+    )
+    acceptance_example = acceptances.add_parser(
+        "example", help="Print proportional contract and review examples"
+    )
+    acceptance_example.set_defaults(
+        _handler=_acceptance_example, _command="task.acceptance.example"
+    )
+
 
 def _repo():
     return git.root()
@@ -109,9 +138,12 @@ def _begin(args: argparse.Namespace) -> list[str]:
         paths=args.path,
         interfaces=args.interface,
         domains=args.domain,
-        intent_file=args.intent,
-        intent_expansion=args.intent_expansion,
-        outcome_review=args.outcome_review,
+        adapter_inputs={"task_acceptance": args.acceptance_contract},
+        adapter_overrides=(
+            {"task_acceptance": args.task_acceptance}
+            if args.task_acceptance is not None
+            else {}
+        ),
     )
 
 
@@ -147,6 +179,7 @@ def _finish(args: argparse.Namespace) -> list[str]:
         assessment_path=assessment,
         subject=args.subject,
         checks=args.check,
+        adapter_inputs={"task_acceptance": args.acceptance_review},
     )
 
 
@@ -176,6 +209,16 @@ def _assessment_example(_: argparse.Namespace) -> CommandResult:
     return CommandResult(_yaml_lines(value), {"example": value})
 
 
+def _acceptance_schema(_: argparse.Namespace) -> CommandResult:
+    value = adapters.schemas()
+    return CommandResult(_yaml_lines(value), {"schema": value})
+
+
+def _acceptance_example(_: argparse.Namespace) -> CommandResult:
+    value = adapters.task_acceptance_examples()
+    return CommandResult(_yaml_lines(value), {"example": value})
+
+
 def _assessment_prepare(args: argparse.Namespace) -> CommandResult:
     repo = _repo()
     assessment, analysis = tasks.prepare_assessment(repo, args.task_id)
@@ -190,10 +233,21 @@ def _assessment_prepare(args: argparse.Namespace) -> CommandResult:
     except ValueError:
         display_path = destination
     lines = [f"ASSESSMENT: prepared {args.task_id}", f"SAVED: {display_path}"]
-    if analysis["required"]:
-        lines.append(f"REQUIRED: {len(analysis['required'])} semantic completion(s)")
+    adapter_required = sum(
+        len(item.get("required", []))
+        for item in analysis.get("adapters", [])
+        if isinstance(item, dict) and isinstance(item.get("required"), list)
+    )
+    if analysis["required"] or adapter_required:
+        lines.append(
+            f"REQUIRED: {len(analysis['required'])} semantic completion(s), "
+            f"{adapter_required} adapter result(s)"
+        )
     else:
         lines.append("READY: assessment has no unresolved generated requirements")
+    for adapter in analysis.get("adapters", []):
+        if isinstance(adapter, dict) and adapter.get("review"):
+            lines.append(f"ADAPTER-REVIEW: {adapter['review']}")
     return CommandResult(
         lines,
         {"assessment": assessment, "analysis": analysis, "path": str(destination)},

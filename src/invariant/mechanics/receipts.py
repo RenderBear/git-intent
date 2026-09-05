@@ -80,8 +80,7 @@ def open_receipt(
     paths: Iterable[str] = (),
     interfaces: Iterable[str] = (),
     domains: Iterable[str] = (),
-    intent_expansion: bool = False,
-    outcome_review: bool = False,
+    adapters: Iterable[str] = (),
 ) -> tuple[dict[str, Any], list[str]]:
     resolved = config.resolve(repo)
     target = resolved.integration_branch
@@ -110,10 +109,7 @@ def open_receipt(
             "domains": selected,
         },
         "intent": intent,
-        "options": {
-            "intent_expansion": intent_expansion,
-            "outcome_review": outcome_review,
-        },
+        "adapters": sorted(set(adapters)),
     }
     save(repo, task, receipt)
     return receipt, [f"BRIEF: opened {task}", f"RECEIPT: {receipt_path(repo, task)}"]

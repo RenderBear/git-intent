@@ -5,9 +5,11 @@ from pathlib import Path
 
 import yaml
 
+from invariant import adapters
+from invariant.adapters.task_acceptance import TaskAcceptanceContract, TaskAcceptanceReview
 from invariant.semantics import guidance
 from invariant.semantics.discovery import Discovery, validate_shape
-from invariant.semantics.models import Assessment, TaskIntent
+from invariant.semantics.models import Assessment
 
 
 PACKAGE = Path(__file__).parents[1] / "src" / "invariant"
@@ -39,46 +41,47 @@ def test_mechanics_does_not_depend_on_lifecycle_or_skill_source() -> None:
         assert "skills/intent-" not in path.read_text(encoding="utf-8")
 
 
-def test_task_intent_keeps_prose_input_and_stable_ids(tmp_path: Path) -> None:
-    path = tmp_path / "intent.yml"
+def test_task_acceptance_contract_keeps_prose_and_stable_ids(tmp_path: Path) -> None:
+    path = tmp_path / "contract.yml"
     path.write_text(
         yaml.safe_dump(
             {
                 "version": 1,
+                "adapter": "task_acceptance",
+                "source_goal_digest": "goal-id",
                 "intent": {
                     "goal": "Restore active jobs after reopening.",
                     "outcomes": [{"id": "O1", "prose": "Active jobs remain visible."}],
                     "acceptance": [{"id": "A1", "prose": "Each job appears once."}],
                     "constraints": [{"id": "C1", "prose": "Chat remains session scoped."}],
                 },
+                "verification": {
+                    "level": "targeted",
+                    "rationale": "A bounded behavior change has focused existing tests.",
+                },
             }
         ),
         encoding="utf-8",
     )
-    intent = TaskIntent.load(path)
-    assert intent.goal == "Restore active jobs after reopening."
-    assert intent.outcomes == ["O1"]
-    assert intent.acceptance == ["A1"]
-    assert intent.constraints == ["C1"]
+    contract = TaskAcceptanceContract.load(path)
+    assert contract.goal == "Restore active jobs after reopening."
+    assert contract.nodes["outcomes"] == ["O1"]
+    assert contract.required == ["A1", "C1"]
+    assert contract.nodes["constraints"] == ["C1"]
+    assert contract.verification_level == "targeted"
     assert "Active jobs remain visible." in path.read_text(encoding="utf-8")
 
 
-def test_outcome_assessment_is_exact_tree_semantic_input(tmp_path: Path) -> None:
-    path = tmp_path / "assessment.yml"
+def test_task_acceptance_review_is_separate_exact_tree_adapter_input(tmp_path: Path) -> None:
+    path = tmp_path / "review.yml"
     path.write_text(
         yaml.safe_dump(
             {
                 "version": 1,
-                "goal_digest": "abc",
-                "paths": ["src/jobs.py"],
-                "interfaces": [],
-                "domains": [],
-                "boundary": {"disposition": "no-record"},
-                "governance": [],
-                "architecture_reviews": [],
-                "checks": [],
+                "adapter": "task_acceptance",
+                "source_goal_digest": "abc",
                 "candidate_tree": "tree-id",
-                "outcome_assessment": [
+                "results": [
                     {
                         "satisfies": "A1",
                         "disposition": "satisfied",
@@ -90,10 +93,10 @@ def test_outcome_assessment_is_exact_tree_semantic_input(tmp_path: Path) -> None
         ),
         encoding="utf-8",
     )
-    assessment = Assessment.load(path)
-    assert assessment.candidate_tree == "tree-id"
-    assert assessment.outcomes[0].reference == "A1"
-    assert assessment.outcomes[0].disposition == "satisfied"
+    review = TaskAcceptanceReview.load(path)
+    assert review.candidate_tree == "tree-id"
+    assert review.results[0].reference == "A1"
+    assert review.results[0].disposition == "satisfied"
 
 
 def test_discovery_can_resolve_without_a_contract() -> None:
@@ -120,20 +123,40 @@ def test_discovery_can_resolve_without_a_contract() -> None:
 
 
 def test_stage_guidance_remains_free_form_and_composable() -> None:
-    text = guidance.for_stage(
-        "implementing", intent_expansion=True, outcome_review=True
-    )
+    text = guidance.for_stage("implementing")
     assert "# Brief" in text
     assert "# Durable semantic reasoning" in text
     assert "# Repository archaeology" in text
     assert "# Progressive discovery" in text
     assert "# Coordinate" in text
     assert "# Land" in text
-    assert "# Optional outcome review" in text
     assert "# Human ergonomics" in text
     assert "# Agent protocol reference" in text
     assert "Requested meaning" in text
     assert "Trace behavior end to end" in text
+
+
+def test_task_acceptance_is_a_bundled_adapter_not_semantics() -> None:
+    adapter = adapters.task_acceptance_examples()
+    assert adapter["contract"]["adapter"] == "task_acceptance"
+    assert adapter["review"]["adapter"] == "task_acceptance"
+    assert not (PACKAGE / "semantics" / "guidance" / "intent-expansion.md").exists()
+    assert not (PACKAGE / "semantics" / "guidance" / "outcome-review.md").exists()
+    for path in (PACKAGE / "adapters").rglob("*.py"):
+        imports = imported_modules(path)
+        assert not any(name.startswith("invariant.lifecycle") for name in imports), path
+
+
+def test_task_acceptance_example_allows_inspection_without_a_persisted_test(tmp_path: Path) -> None:
+    examples = adapters.task_acceptance_examples()
+    contract_path = tmp_path / "contract.yml"
+    review_path = tmp_path / "review.yml"
+    contract_path.write_text(yaml.safe_dump(examples["contract"]), encoding="utf-8")
+    review_path.write_text(yaml.safe_dump(examples["review"]), encoding="utf-8")
+    contract = TaskAcceptanceContract.load(contract_path)
+    review = TaskAcceptanceReview.load(review_path)
+    assert contract.verification_level == "inspection"
+    assert review.results[0].evidence == ["inspection:src/components/SaveButton.tsx"]
 
 
 def test_installed_agent_workflow_matches_portable_reference() -> None:

@@ -42,7 +42,7 @@ grep -q '^# Existing Claude instructions$' "$defaults/CLAUDE.md" || die "Claude 
 grep -q '^@AGENTS.md$' "$defaults/CLAUDE.md" || die "Claude does not import the shared workflow"
 printf '%s\n' "$out" | grep -q '^Recommended next step$' || die "init omitted the governance recommendation"
 printf '%s\n' "$out" | grep -q "invariant initial-governance begin initial-governance" || die "init omitted the governance command"
-printf '%s\n' "$out" | grep -q "Intent shaping.*Model's own understanding" || die "default intent shaping was not explained"
+printf '%s\n' "$out" | grep -q "Task adapter.*Agent's own workflow" || die "default task adapter was not explained"
 [ ! -e "$defaults/.invariant/DOMAINS.yml" ] || die "init manufactured empty domains"
 [ ! -e "$defaults/.invariant/CONTRACTS.yml" ] || die "init manufactured empty contracts"
 [ ! -e "$defaults/.invariant/audits" ] || die "init ran an audit"
@@ -57,7 +57,7 @@ assisted
 named
 stable
 on
-both'
+acceptance'
 out=$(printf '%s\n' "$answers" | (cd "$interactive" && "$cli" init))
 grep -q '^coding_agents:$' "$interactive/.invariant/config.yml" || die "interactive init omitted coding agents"
 grep -q '^- claude$' "$interactive/.invariant/config.yml" || die "interactive init did not select Claude"
@@ -66,8 +66,7 @@ grep -q '^authority: human$' "$interactive/.invariant/config.yml" || die "intera
 grep -q '^execution: assisted$' "$interactive/.invariant/config.yml" || die "interactive execution choice was lost"
 grep -q '^integration_branch: stable$' "$interactive/.invariant/config.yml" || die "named integration branch was lost"
 grep -q "^push_remote: 'on'$" "$interactive/.invariant/config.yml" || die "interactive publication choice was lost"
-grep -q '^  intent_expansion: true$' "$interactive/.invariant/config.yml" || die "custom pre-step choice was lost"
-grep -q '^  outcome_review: true$' "$interactive/.invariant/config.yml" || die "custom post-step choice was lost"
+grep -q '^  task_acceptance: true$' "$interactive/.invariant/config.yml" || die "task acceptance adapter choice was lost"
 [ ! -e "$interactive/AGENTS.md" ] || die "Claude-only setup created AGENTS.md"
 grep -q '^## Invariant lifecycle$' "$interactive/CLAUDE.md" || die "Claude-only workflow was not installed"
 grep -q '^#### Human authority$' "$interactive/CLAUDE.md" || die "installed workflow was not structured"
@@ -76,7 +75,7 @@ if grep -q '^# Human ergonomics$' "$interactive/CLAUDE.md"; then
 fi
 printf '%s\n' "$out" | grep -q '^◆ Integration branch$' || die "interactive init did not explain integration branch"
 printf '%s\n' "$out" | grep -q 'Resolve the target when each task begins' || die "automatic branch behavior was not explained"
-printf '%s\n' "$out" | grep -q '^◆ Intent shaping$' || die "interactive init split the optional intent steps"
+printf '%s\n' "$out" | grep -q '^◆ Task adapter$' || die "interactive init omitted the bundled adapter choice"
 ok "interactive init explains and persists each repository choice"
 
 ambiguous="$fixtures/ambiguous"

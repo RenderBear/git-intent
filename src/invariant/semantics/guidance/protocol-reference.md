@@ -35,7 +35,8 @@ records.
 
 Before writing an audit, load `invariant evidence audit schema`. Before finishing a task, run
 `invariant task assessment prepare <task-id>` and consult `invariant task assessment schema` when
-needed.
+needed. When the task acceptance adapter is enabled, load `invariant task acceptance schema`; keep
+its contract and candidate-bound review separate from the repository semantic assessment.
 
 Prefer compact JSON for automation. Consume the complete `required`, `inferred`, and `will_run`
 payload in one pass rather than probing the protocol one validation error at a time.

@@ -140,29 +140,19 @@ def _interactive(repo) -> bootstrap.BootstrapSettings:
         ),
         "off",
     )
-    intent_shaping = _select(
-        "Intent shaping",
-        "How should Invariant shape and review task intent?",
+    task_adapter = _select(
+        "Task adapter",
+        "Should Invariant expand each request and validate a local acceptance contract?",
         (
             (
                 "model",
-                "Model's own understanding",
-                "Use the coding agent's normal workflow without extra intent steps.",
+                "Agent's own workflow",
+                "Use the coding agent's normal understanding and the core verification lifecycle.",
             ),
             (
-                "pre",
-                "Intent expansion",
-                "Before implementation, make outcomes, acceptance criteria, and constraints explicit.",
-            ),
-            (
-                "post",
-                "Outcome review",
-                "Before landing, assess the exact candidate against the goal.",
-            ),
-            (
-                "both",
-                "Both expansion and review",
-                "Expand intent before implementation, then assess the exact candidate before landing.",
+                "acceptance",
+                "Task acceptance adapter",
+                "Expand intent before work and review the exact candidate with proportional evidence.",
             ),
         ),
         "model",
@@ -173,8 +163,7 @@ def _interactive(repo) -> bootstrap.BootstrapSettings:
         execution=execution,
         integration_branch=integration_branch,
         push_remote=push_remote,
-        intent_expansion=intent_shaping in {"pre", "both"},
-        outcome_review=intent_shaping in {"post", "both"},
+        task_acceptance=task_adapter == "acceptance",
     )
 
 
@@ -199,17 +188,11 @@ def _summary(lines: list[str], *, show_logo: bool) -> None:
     if value("INTEGRATION-BRANCH-SETTING") == "auto":
         branch = f"{branch} (current branch)"
     publication = "Local only" if value("PUSH-REMOTE") == "off" else "Existing upstream"
-    shaping = {
-        (False, False): "Model's own understanding",
-        (True, False): "Intent expansion",
-        (False, True): "Outcome review",
-        (True, True): "Both expansion and review",
-    }[
-        (
-            value("INTENT-EXPANSION") == "on",
-            value("OUTCOME-REVIEW") == "on",
-        )
-    ]
+    task_adapter = (
+        "Task acceptance adapter"
+        if value("TASK-ACCEPTANCE-ADAPTER") == "on"
+        else "Agent's own workflow"
+    )
 
     print(f"\n{_color('1;32', '✓ Repository initialized')}\n")
     rows = (
@@ -218,7 +201,7 @@ def _summary(lines: list[str], *, show_logo: bool) -> None:
         ("Git lifecycle", execution),
         ("Integration", branch),
         ("Publication", publication),
-        ("Intent shaping", shaping),
+        ("Task adapter", task_adapter),
         ("Configuration", value("CONFIG")),
     )
     for label, setting in rows:

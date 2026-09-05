@@ -34,6 +34,7 @@ class LandRequest:
     target: str | None = None
     plan: str | None = None
     allow_open: bool = False
+    expected_tree: str | None = None
 
 
 @dataclass(frozen=True)
@@ -686,6 +687,15 @@ def verify_and_land(repo: Path, request: LandRequest, *, update_ref: bool = True
     if git.run(["check-ref-format", "--branch", target], cwd=repo, check=False).returncode:
         raise InvariantError(f"Invariant: invalid integration branch '{target}'")
     candidate = _construct(repo, request, target)
+    if request.expected_tree and candidate.tree != request.expected_tree:
+        raise Blocked(
+            "Invariant: candidate tree changed after its adapter review",
+            code="stale_adapter_review",
+            lines=[
+                f"REVIEWED-TREE: {request.expected_tree}",
+                f"CANDIDATE-TREE: {candidate.tree}",
+            ],
+        )
     push_target = (
         _remote_push_target(repo, target)
         if update_ref and _remote_push_enabled(repo, candidate)

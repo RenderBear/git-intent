@@ -144,10 +144,12 @@ upstream. Never choose or configure an upstream automatically, and never run `gi
 Invariant's landing flow. If the remote rejects the update, preserve and report the completed local
 landing.
 
-Repositories may independently enable `lifecycle.intent_expansion` and
-`lifecycle.outcome_review`. Expansion adds stable task-local outcome, acceptance, and constraint IDs
-before implementation. Outcome review assesses those IDs against the exact prospective tree. When
-disabled, neither bookend is required; the durable-intent lifecycle remains unchanged.
+Repositories may enable the bundled `adapters.task_acceptance` unit. It expands the request into a
+Git-local acceptance contract before implementation and reviews that contract against the exact
+prospective tree before landing. Use proportional evidence: inspection can satisfy a local
+presentation change, while affected behavior, cross-domain, persistence, security, or compatibility
+work needs focused or broad executable verification. Do not manufacture a persisted test merely
+because the adapter is enabled. When disabled, the fixed durable-intent lifecycle remains unchanged.
 
 ## Agent protocol reference
 
@@ -186,7 +188,8 @@ records.
 
 Before writing an audit, load `invariant evidence audit schema`. Before finishing a task, run
 `invariant task assessment prepare <task-id>` and consult `invariant task assessment schema` when
-needed.
+needed. When the task acceptance adapter is enabled, load `invariant task acceptance schema`; keep
+its contract and candidate-bound review separate from the repository semantic assessment.
 
 Prefer compact JSON for automation. Consume the complete `required`, `inferred`, and `will_run`
 payload in one pass rather than probing the protocol one validation error at a time.

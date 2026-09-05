@@ -81,8 +81,7 @@ def _begin(args: argparse.Namespace) -> list[str]:
         paths=[],
         interfaces=[],
         domains=[],
-        intent_expansion=False,
-        outcome_review=False,
+        adapter_overrides={"task_acceptance": False},
     )
     receipt = receipts.load(repo, args.task_id)
     receipt["initial_governance"] = {"phase": "audit"}

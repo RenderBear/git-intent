@@ -19,16 +19,24 @@ SETTABLE_KEYS = {
     "execution",
     "integration_branch",
     "push_remote",
-    "lifecycle.intent_expansion",
-    "lifecycle.outcome_review",
+    "adapters.task_acceptance",
 }
 CODING_AGENT_CHOICES = {"claude", "codex"}
 
 
 @dataclass(frozen=True)
-class LifecycleOptions:
-    intent_expansion: bool = False
-    outcome_review: bool = False
+class AdapterOptions:
+    values: tuple[tuple[str, bool], ...] = (("task_acceptance", False),)
+
+    @property
+    def enabled(self) -> tuple[str, ...]:
+        return tuple(name for name, active in self.values if active)
+
+    def is_enabled(self, name: str) -> bool:
+        return any(candidate == name and active for candidate, active in self.values)
+
+    def as_dict(self) -> dict[str, bool]:
+        return dict(self.values)
 
 
 @dataclass(frozen=True)
@@ -59,7 +67,7 @@ class Config:
     source: str
     branch_source: str
     unborn: bool
-    lifecycle: LifecycleOptions
+    adapters: AdapterOptions
     verification: VerificationOptions
 
 
@@ -93,7 +101,7 @@ def _from_raw(
         "execution",
         "integration_branch",
         "push_remote",
-        "lifecycle",
+        "adapters",
         "verification",
     }
     unknown = sorted(set(raw) - allowed)
@@ -126,20 +134,20 @@ def _from_raw(
         raise InvariantError(
             f"Invariant: .invariant/config.yml has invalid push_remote '{push_remote}' (use on or off)"
         )
-    lifecycle_raw = raw.get("lifecycle", {})
-    if not isinstance(lifecycle_raw, dict):
-        raise InvariantError("Invariant: .invariant/config.yml lifecycle must be a mapping")
-    lifecycle_unknown = sorted(set(lifecycle_raw) - {"intent_expansion", "outcome_review"})
-    if lifecycle_unknown:
-        raise InvariantError(
-            f"Invariant: .invariant/config.yml has unknown lifecycle field '{lifecycle_unknown[0]}'"
-        )
-    for key in ("intent_expansion", "outcome_review"):
-        if key in lifecycle_raw and not isinstance(lifecycle_raw[key], bool):
-            raise InvariantError(f"Invariant: lifecycle.{key} must be true or false")
-    lifecycle = LifecycleOptions(
-        lifecycle_raw.get("intent_expansion", False), lifecycle_raw.get("outcome_review", False)
-    )
+    adapters_raw = raw.get("adapters", {"task_acceptance": False})
+    if not isinstance(adapters_raw, dict):
+        raise InvariantError("Invariant: .invariant/config.yml adapters must be a mapping")
+    adapter_values: list[tuple[str, bool]] = []
+    for name, enabled in sorted(adapters_raw.items()):
+        if not isinstance(name, str) or not git.valid_id(name):
+            raise InvariantError(f"Invariant: invalid adapter id '{name}'")
+        if not isinstance(enabled, bool):
+            raise InvariantError(f"Invariant: adapters.{name} must be true or false")
+        adapter_values.append((name, enabled))
+    if "task_acceptance" not in adapters_raw:
+        adapter_values.append(("task_acceptance", False))
+        adapter_values.sort()
+    adapters = AdapterOptions(tuple(adapter_values))
     verification_raw = raw.get("verification", {})
     if not isinstance(verification_raw, dict):
         raise InvariantError("Invariant: .invariant/config.yml verification must be a mapping")
@@ -214,7 +222,7 @@ def _from_raw(
         push_remote,
         source,
         branch_source,
-        lifecycle,
+        adapters,
         verification,
     )
 
@@ -233,7 +241,7 @@ def resolve(repo: Path) -> Config:
             "off",
             "default",
             branch_source,
-            LifecycleOptions(),
+            AdapterOptions(),
             VerificationOptions(),
         )
     if not config_path.is_file():
@@ -264,7 +272,7 @@ def resolve_at(repo: Path, ref: str, integration_branch: str) -> Config:
             "off",
             "default",
             "accepted",
-            LifecycleOptions(),
+            AdapterOptions(),
             VerificationOptions(),
         )
     try:
@@ -291,10 +299,7 @@ def _document(config: Config) -> dict[str, Any]:
         "execution": config.execution,
         "integration_branch": config.integration_branch_setting,
         "push_remote": config.push_remote,
-        "lifecycle": {
-            "intent_expansion": config.lifecycle.intent_expansion,
-            "outcome_review": config.lifecycle.outcome_review,
-        },
+        "adapters": config.adapters.as_dict(),
     }
     if config.verification.runners:
         document["verification"] = {
@@ -319,8 +324,7 @@ def initialize(
     execution: str | None = None,
     integration_branch: str | None = None,
     push_remote: str | None = None,
-    intent_expansion: bool | None = None,
-    outcome_review: bool | None = None,
+    task_acceptance: bool | None = None,
 ) -> list[str]:
     path = repo / CONFIG_PATH
     if path.exists():
@@ -337,10 +341,7 @@ def initialize(
         "execution": execution if execution is not None else "auto",
         "integration_branch": branch_setting,
         "push_remote": push_remote if push_remote is not None else "off",
-        "lifecycle": {
-            "intent_expansion": intent_expansion is True,
-            "outcome_review": outcome_review is True,
-        },
+        "adapters": {"task_acceptance": task_acceptance is True},
     }
     _from_raw(
         repo,
@@ -390,15 +391,15 @@ def set_value(repo: Path, key: str, value: str) -> list[str]:
         if value not in {"on", "off"}:
             raise InvariantError("Invariant: push_remote must be on or off", code="invalid_config_value")
         document[key] = value
-    else:
+    elif key.startswith("adapters."):
         if value not in {"on", "off"}:
             raise InvariantError(f"Invariant: {key} must be on or off", code="invalid_config_value")
-        lifecycle = document.get("lifecycle", {})
-        if not isinstance(lifecycle, dict):
-            raise InvariantError("Invariant: .invariant/config.yml lifecycle must be a mapping")
-        lifecycle = dict(lifecycle)
-        lifecycle[key.removeprefix("lifecycle.")] = value == "on"
-        document["lifecycle"] = lifecycle
+        adapter_values = document.get("adapters", {})
+        if not isinstance(adapter_values, dict):
+            raise InvariantError("Invariant: .invariant/config.yml adapters must be a mapping")
+        adapter_values = dict(adapter_values)
+        adapter_values[key.removeprefix("adapters.")] = value == "on"
+        document["adapters"] = adapter_values
 
     _from_raw(
         repo,
@@ -421,7 +422,7 @@ def _finish(
     push_remote: str,
     source: str,
     branch_source: str,
-    lifecycle: LifecycleOptions,
+    adapters: AdapterOptions,
     verification: VerificationOptions,
 ) -> Config:
     unborn = not git.branch_exists(repo, branch)
@@ -445,7 +446,7 @@ def _finish(
         source,
         branch_source,
         unborn,
-        lifecycle,
+        adapters,
         verification,
     )
 
@@ -461,8 +462,10 @@ def lines(config: Config) -> list[str]:
         f"source: {config.source}",
         f"integration_branch_resolved: {config.integration_branch}",
         f"branch_source: {config.branch_source}",
-        f"intent_expansion: {'true' if config.lifecycle.intent_expansion else 'false'}",
-        f"outcome_review: {'true' if config.lifecycle.outcome_review else 'false'}",
+        *[
+            f"adapter_{name}: {'true' if enabled else 'false'}"
+            for name, enabled in config.adapters.values
+        ],
     ]
     if config.unborn:
         output.append("integration_branch_unborn: true")

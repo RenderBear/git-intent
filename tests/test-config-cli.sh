@@ -26,8 +26,7 @@ printf '%s\n' "$defaults" | grep -q '^execution: auto$' || die "execution defaul
 printf '%s\n' "$defaults" | grep -q '^integration_branch: auto$' || die "branch setting default is wrong"
 printf '%s\n' "$defaults" | grep -q '^integration_branch_resolved: main$' || die "automatic branch resolution is wrong"
 printf '%s\n' "$defaults" | grep -q '^push_remote: off$' || die "remote push default is not off"
-printf '%s\n' "$defaults" | grep -q '^intent_expansion: false$' || die "intent expansion default is wrong"
-printf '%s\n' "$defaults" | grep -q '^outcome_review: false$' || die "outcome review default is wrong"
+printf '%s\n' "$defaults" | grep -q '^adapter_task_acceptance: false$' || die "task acceptance adapter default is wrong"
 [ ! -e "$fixture/.invariant" ] || die "show persisted implicit defaults"
 
 created=$(cd "$fixture" && "$cli" config init)
@@ -44,13 +43,13 @@ fi
 (cd "$fixture" && "$cli" config set authority human >/dev/null)
 (cd "$fixture" && "$cli" config set coding_agents codex >/dev/null)
 (cd "$fixture" && "$cli" config set push_remote on >/dev/null)
-(cd "$fixture" && "$cli" config set lifecycle.intent_expansion on >/dev/null)
+(cd "$fixture" && "$cli" config set adapters.task_acceptance on >/dev/null)
 updated=$(cd "$fixture" && "$cli" config show)
 printf '%s\n' "$updated" | grep -q '^execution: assisted$' || die "execution update was not resolved"
 printf '%s\n' "$updated" | grep -q '^authority: human$' || die "authority update was not resolved"
 printf '%s\n' "$updated" | grep -q '^coding_agents: codex$' || die "coding-agent update was not resolved"
 printf '%s\n' "$updated" | grep -q '^push_remote: on$' || die "push update was not resolved"
-printf '%s\n' "$updated" | grep -q '^intent_expansion: true$' || die "lifecycle update was not resolved"
+printf '%s\n' "$updated" | grep -q '^adapter_task_acceptance: true$' || die "adapter update was not resolved"
 
 cp "$fixture/.invariant/config.yml" "$before"
 if (cd "$fixture" && "$cli" config set push_remote maybe >/dev/null 2>&1); then

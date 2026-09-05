@@ -129,9 +129,8 @@ authority: agent
 execution: auto
 integration_branch: auto
 push_remote: off
-lifecycle:
-  intent_expansion: false
-  outcome_review: false
+adapters:
+  task_acceptance: false
 ```
 
 Settings:
@@ -144,8 +143,7 @@ Settings:
 | `execution` | `auto` | `auto`, `assisted` | Whether state-changing lifecycle transitions run immediately or pause for explicit continuation. |
 | `integration_branch` | `auto` | `auto`, local branch name | The branch that receives verified landings. `auto` uses the current branch when a task begins; a name fixes one local convergence target. |
 | `push_remote` | `off` | `off`, `on` | Whether a successful landing stays local or pushes the exact verified commit to the integration branch's existing upstream. |
-| `lifecycle.intent_expansion` | `false` | `false`, `true` | Intent expansion before implementation: make outcomes, acceptance criteria, and constraints explicit. Set with `off` or `on` through the CLI. |
-| `lifecycle.outcome_review` | `false` | `false`, `true` | Outcome review before landing: assess the goal or expanded outcomes against the exact candidate. Set with `off` or `on` through the CLI. |
+| `adapters.task_acceptance` | `false` | `false`, `true` | Bundled adapter that expands a request into a local acceptance contract and reviews the exact candidate with proportional evidence. Set with `off` or `on` through the CLI. |
 
 All selections live in `.invariant/config.yml`. Edit that tracked file directly or inspect and update
 validated settings through the CLI:
@@ -158,8 +156,13 @@ invariant config set execution assisted
 invariant config set integration_branch auto
 invariant config set integration_branch main
 invariant config set push_remote on
-invariant config set lifecycle.intent_expansion on
+invariant config set adapters.task_acceptance on
 ```
+
+The task acceptance adapter is optional and lives outside the core semantic and lifecycle packages.
+It stores each contract and review under Git-local task runtime, never as repository governance. Its
+verification level is `inspection`, `targeted`, or `broad`, chosen from semantic reach and risk; a
+small presentation change can be satisfied by inspectable evidence without adding a unit test.
 
 ### Configure project-aware verification
 
@@ -228,7 +231,7 @@ your-repository/
 - **Discovery:** non-authoritative evidence about something missing, contradictory, or not yet
   understood.
 - **Audit:** a causally grounded record of what was inspected and found.
-- **Task intent:** optional outcomes and acceptance criteria for one local change.
+- **Task acceptance:** an optional, disposable adapter contract for one local change.
 - **Coordination:** temporary dependencies and ownership while parallel work is active.
 
 The short form is:

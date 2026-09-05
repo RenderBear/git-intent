@@ -31,8 +31,7 @@ class BootstrapSettings:
     execution: str = "auto"
     integration_branch: str = "auto"
     push_remote: str = "off"
-    intent_expansion: bool = False
-    outcome_review: bool = False
+    task_acceptance: bool = False
 
 
 def _managed(text: str, body: str, path: Path) -> str:
@@ -123,8 +122,7 @@ def initialize(repo: Path, settings: BootstrapSettings) -> list[str]:
         execution=settings.execution,
         integration_branch=settings.integration_branch,
         push_remote=settings.push_remote,
-        intent_expansion=settings.intent_expansion,
-        outcome_review=settings.outcome_review,
+        task_acceptance=settings.task_acceptance,
     )
     for path, text in updates.items():
         _write(path, text)
@@ -146,8 +144,7 @@ def initialize(repo: Path, settings: BootstrapSettings) -> list[str]:
         f"INTEGRATION-BRANCH: {resolved.integration_branch}",
         f"INTEGRATION-BRANCH-SETTING: {settings.integration_branch}",
         f"PUSH-REMOTE: {settings.push_remote}",
-        f"INTENT-EXPANSION: {'on' if settings.intent_expansion else 'off'}",
-        f"OUTCOME-REVIEW: {'on' if settings.outcome_review else 'off'}",
+        f"TASK-ACCEPTANCE-ADAPTER: {'on' if settings.task_acceptance else 'off'}",
         *instruction_lines,
         (
             "RECOMMENDED: Ask your coding agent to run Invariant's initial governance workflow."

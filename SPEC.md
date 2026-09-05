@@ -251,6 +251,7 @@ The standing of each object is:
 |---|---|---|
 | Domain, architecture, contract | accepted authority | repository history |
 | Audit, discovery | evidence only | repository history |
+| Task acceptance contract and review | optional adapter state | active task |
 | Plan, lease | coordination only | active work |
 | Receipt | cache integrity only | disposable |
 | Git tree and commit | causal implementation fact | repository history |
@@ -270,9 +271,8 @@ authority: agent
 execution: auto
 integration_branch: auto
 push_remote: off
-lifecycle:
-  intent_expansion: false
-  outcome_review: false
+adapters:
+  task_acceptance: false
 ```
 
 `coding_agents` records the non-empty set of supported coding agents configured during repository
@@ -332,7 +332,7 @@ candidate `pyproject.toml` and use its tracked `uv.lock` when present. Automatic
 only for that locked environment; named runners must opt into exact-tree reuse explicitly.
 
 Absence means both supported coding agents, `authority: agent`, `execution: auto`,
-`integration_branch: auto`, `push_remote: off`, and disabled optional lifecycle bookends. Automatic
+`integration_branch: auto`, `push_remote: off`, and no enabled adapters. Automatic
 execution is the ergonomic default; it does not remove briefing, branch isolation, exact-tree
 verification, or atomic landing. Neither execution mode weakens validation or grants external
 authority.
@@ -348,15 +348,15 @@ ambiguous unmanaged Invariant section blocks initialization before project state
 `invariant config init` remains the lower-level configuration-only initializer.
 `invariant config set <key> <value>` updates one validated setting atomically. The settable keys are
 `coding_agents`, `authority`, `execution`, `integration_branch`, `push_remote`,
-`lifecycle.intent_expansion`, and `lifecycle.outcome_review`. Version `1` is the configuration schema
-marker, not an operational setting.
+and `adapters.task_acceptance`. Version `1` is the configuration schema marker, not an operational
+setting.
 
-The two `lifecycle` switches are optional semantic bookends, presented as one setup choice. The
-model-led default leaves both disabled and relies on the coding agent's own understanding plus
-normal candidate review. `intent_expansion` adds a custom pre-step with stable task-local outcome,
-acceptance, and constraint IDs; `outcome_review` adds a custom post-step that assesses the goal or
-those IDs against the exact prospective tree. A repository may enable either step or both without
-changing the durable-intent workflow in the middle.
+Optional additions to the fixed core are configured under `adapters`. The bundled
+`task_acceptance` adapter is one indivisible unit: its pre-hook expands the request into a local
+acceptance contract with stable IDs, and its post-hook assesses those IDs against the exact
+prospective tree. It is either enabled in full or disabled; intent expansion and outcome review are
+not independent lifecycle modes. The model-led default leaves the adapter disabled and relies on
+the coding agent's normal understanding plus normal candidate review.
 
 ## 7. Semantic model
 
@@ -412,7 +412,13 @@ contracts:
 ```
 
 Contracts require identifiable reliance, referenced architecture, and executable verification. The
-CLI selects and runs declared verifiers; it does not invent contracts.
+semantic assertion is reviewed by an agent or human; executable verifiers test stable observable
+consequences of that assertion against the exact candidate tree. A verifier may be a conformance
+suite, schema compatibility check, boundary integration test, state-machine property, or another
+repository-owned observation. Passing is evidence for the contract, not a mechanical proof of every
+possible interpretation. If a promise has no stable observable consequence, record it as
+architecture or a constraint rather than pretending it is executable. The CLI selects and runs
+declared verifiers; it does not invent contracts or tests.
 
 ### 7.4 Durable meaning
 
@@ -435,12 +441,14 @@ The result supplied to verification is one of:
 These are semantic assertions with mechanical validation. A reach classification never manufactures
 the assertion.
 
-### 7.5 Optional task intent
+### 7.5 Task acceptance adapter
 
-When `intent_expansion` is enabled, the host supplies a task-local prose document:
+When `adapters.task_acceptance` is enabled, the host supplies a task-local acceptance contract:
 
 ```yaml
 version: 1
+adapter: task_acceptance
+source_goal_digest: <goal-digest-from-task-begin>
 intent:
   goal: Restore active jobs when the browser is reopened.
   outcomes:
@@ -452,11 +460,29 @@ intent:
   constraints:
     - id: C1
       prose: Chat events remain browser-session scoped.
+verification:
+  level: targeted
+  rationale: Recovery behavior is bounded and has focused integration checks.
 ```
 
-Stable IDs provide semantic dependency points while prose remains first-class. This document is
-stored with disposable task state, not accepted as repository governance. Its presence does not
-imply that every task needs a detailed specification.
+Stable IDs provide task dependency points while prose remains first-class. The original request and
+its goal digest stay authoritative; the adapter records a derived expansion rather than silently
+replacing them. The contract is stored under
+`<git-common-dir>/invariant/tasks/<task-id>/adapters/task_acceptance/`, not accepted as repository
+governance.
+
+The verification level is proportional to semantic reach and risk, not raw diff size:
+
+- `inspection` covers local presentation or documentation changes with directly observable results;
+- `targeted` covers bounded behavior with focused existing checks;
+- `broad` covers cross-domain, persistence, security, compatibility, or similarly high-risk work.
+
+At finish, the adapter creates a separate exact-tree review. Every required acceptance or outcome
+and every stated constraint must be satisfied and carry inspectable evidence. Evidence may be an
+existing test, command, schema, source inspection, screenshot, or human review. A task does not
+require a new persisted test merely because the adapter is enabled; durable repository contracts,
+by contrast, require reusable
+executable verifiers.
 
 ## 8. CLI contract
 
@@ -483,14 +509,18 @@ invariant config show
 invariant config init
 invariant config set <key> <value>
 invariant task begin <task-id> --goal <text> [semantic scope...]
+                     [--task-acceptance|--no-task-acceptance]
+                     [--acceptance-contract <file>]
 invariant task status <task-id>
 invariant task check <task-id> [semantic scope...]
 invariant task finish <task-id> [--assessment <file>] [--check <locator>]...
+                      [--acceptance-review <file>]
 invariant task continue <task-id> [--apply]
 invariant task invalidate <task-id>
 invariant task guidance <task-id>
 invariant task assessment <schema|example>
 invariant task assessment prepare <task-id> [--output <file>]
+invariant task acceptance <schema|example>
 invariant state validate
 invariant context map
 invariant context rows <domain>...
@@ -530,13 +560,6 @@ architecture_reviews:
   - architecture:docs/architecture.md#ocr-engine-isolation
 checks:
   - test:tests/test_ocr_engine.py
-# Required only when outcome_review is enabled:
-candidate_tree: <exact-tree-id>
-outcome_assessment:
-  - satisfies: A1
-    disposition: satisfied
-    prose: The candidate restores each persisted non-terminal job once.
-    evidence: [test:tests/test_job_restore.py]
 ```
 
 The assessment records the caller's semantic decisions. It is not accepted governance and need not
@@ -545,6 +568,23 @@ be committed. The CLI validates references, completeness, and consistency with t
 draft, inferred values, remaining required decisions, recommended architecture reviews, and exact
 verifiers that will run. Schema and example commands expose the same source-of-truth shapes used by
 validation.
+
+Adapter inputs do not extend this core assessment schema. When task acceptance is enabled,
+`task assessment prepare` also writes a separate Git-local review:
+
+```yaml
+version: 1
+adapter: task_acceptance
+source_goal_digest: <goal-digest>
+candidate_tree: <exact-tree-id>
+results:
+  - satisfies: A1
+    disposition: satisfied
+    prose: The candidate restores each persisted non-terminal job once.
+    evidence: [test:tests/test_job_restore.py]
+```
+
+`invariant task acceptance schema` exposes both the adapter contract and review shapes.
 
 ### 8.2 Structured output
 
@@ -792,15 +832,15 @@ local ref update.
 Both profiles preserve the same receipts, branches, candidate construction, checks, and landing
 guarantees. The distinction is only where the CLI pauses.
 
-### 14.3 Optional bookends
+### 14.3 Task acceptance adapter
 
-With intent expansion enabled, `task begin` pauses at `awaiting-intent-expansion` until the host
-supplies a valid task-intent document. With outcome review enabled, `task finish` publishes the exact
-candidate tree and pauses at `awaiting-outcome-review` until every required acceptance ID is
-conclusively satisfied for that tree. A changed tree invalidates that review.
+With the bundled adapter enabled, `task begin` pauses at `awaiting-task-acceptance` until the host
+supplies a valid local contract. `task finish` publishes the exact candidate tree and pauses at
+`awaiting-task-acceptance-review` until every required acceptance ID is conclusively satisfied with
+evidence for that tree. A changed tree regenerates and invalidates the review.
 
-When disabled, these two stages disappear. Briefing, receipts, generated branches, durable-meaning
-review, exact-tree verification, and atomic landing remain mandatory.
+When disabled, both adapter hooks disappear together. Briefing, receipts, generated branches,
+durable-meaning review, exact-tree verification, and atomic landing remain mandatory core behavior.
 
 ## 15. Skills
 

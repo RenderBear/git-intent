@@ -4,13 +4,14 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
+from invariant import adapters
 from invariant.errors import Blocked, InvariantError, RemotePushFailed
 from invariant.mechanics import config, git, governance, landing, receipts
 from invariant.mechanics.documents import dump_yaml, load_yaml
 from invariant.semantics import guidance
-from invariant.semantics.models import Assessment, TaskIntent
+from invariant.semantics.models import Assessment
 
 
 def _valid_boundary(value: str) -> bool:
@@ -55,19 +56,27 @@ def _create_branch(repo: Path, branch: str, target: str) -> None:
     git.run(["switch", "-q", "-c", branch, f"refs/heads/{target}"], cwd=repo)
 
 
-def _options(receipt: dict[str, object]) -> tuple[bool, bool]:
-    value = receipt.get("options")
-    if not isinstance(value, dict):
-        return False, False
-    return value.get("intent_expansion") is True, value.get("outcome_review") is True
+def _validate_adapter_receipt(receipt: dict[str, object]) -> None:
+    identifiers = adapters.enabled(receipt)
+    adapters.validate(identifiers)
+    if receipt.get("adapter_digest") != adapters.digest(identifiers):
+        raise Blocked("STALE: task adapter implementation changed", code="stale_receipt")
 
 
-def _store_intent(repo: Path, task: str, source: str) -> TaskIntent:
-    intent = TaskIntent.load(source)
-    destination = receipts.task_root(repo, task) / "intent.yml"
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, destination)
-    return intent
+def _raise_adapter_gate(repo: Path, task: str, receipt: dict[str, object], gate) -> None:
+    lifecycle = receipt.get("lifecycle") if isinstance(receipt.get("lifecycle"), dict) else {}
+    branch = str(lifecycle.get("branch") or "")
+    receipts.set_lifecycle(repo, task, gate.stage, branch, str(repo))
+    raise Blocked(
+        gate.message,
+        code=gate.code,
+        lines=[
+            f"TASK: {task}",
+            f"STATUS: {gate.stage}",
+            *gate.lines,
+            f"GUIDANCE: invariant task guidance {task}",
+        ],
+    )
 
 
 def _activate(
@@ -113,9 +122,8 @@ def begin(
     paths: Iterable[str] = (),
     interfaces: Iterable[str] = (),
     domains: Iterable[str] = (),
-    intent_file: str | None = None,
-    intent_expansion: bool | None = None,
-    outcome_review: bool | None = None,
+    adapter_inputs: Mapping[str, str | None] | None = None,
+    adapter_overrides: Mapping[str, bool] | None = None,
 ) -> list[str]:
     if not git.valid_id(task):
         raise InvariantError(f"Invariant: invalid task id '{task}'")
@@ -133,23 +141,33 @@ def begin(
             interfaces=interfaces,
             domains=domains,
         )
+        _validate_adapter_receipt(receipt)
         lifecycle = receipt.get("lifecycle") if isinstance(receipt.get("lifecycle"), dict) else {}
-        if lifecycle.get("stage") == "awaiting-intent-expansion" and intent_file:
-            intent = _store_intent(repo, task, intent_file)
-            receipt["intent_nodes"] = {
-                "outcomes": intent.outcomes,
-                "acceptance": intent.acceptance,
-                "constraints": intent.constraints,
-            }
-            receipts.save(repo, task, receipt)
+        stage = str(lifecycle.get("stage") or "")
+        gate = adapters.begin(
+            receipts.task_root(repo, task),
+            receipt,
+            adapter_inputs or {},
+        )
+        receipts.save(repo, task, receipt)
+        if gate:
+            _raise_adapter_gate(repo, task, receipt, gate)
+        if adapters.is_begin_stage(receipt, stage):
             return _activate(repo, task, receipt, execution=_target_config(repo, str(receipt["integration_target"])).execution)
         return _status_lines(repo, receipt)
 
     resolved = config.resolve(repo)
-    expansion = resolved.lifecycle.intent_expansion if intent_expansion is None else intent_expansion
-    review = resolved.lifecycle.outcome_review if outcome_review is None else outcome_review
-    if intent_file:
-        expansion = True
+    selected_adapters = set(resolved.adapters.enabled)
+    for identifier, enabled in (adapter_overrides or {}).items():
+        if enabled:
+            selected_adapters.add(identifier)
+        else:
+            selected_adapters.discard(identifier)
+    selected_adapters.update(
+        identifier for identifier, source in (adapter_inputs or {}).items() if source
+    )
+    adapter_ids = tuple(sorted(selected_adapters))
+    adapters.validate(adapter_ids)
     head = receipts.integration_head(repo, resolved.integration_branch)
     current = git.current_branch(repo)
     if current != resolved.integration_branch:
@@ -167,30 +185,24 @@ def begin(
         paths=paths,
         interfaces=interfaces,
         domains=domains,
-        intent_expansion=expansion,
-        outcome_review=review,
+        adapters=adapter_ids,
     )
-    if expansion and not intent_file:
-        receipts.set_lifecycle(repo, task, "awaiting-intent-expansion", "", str(repo))
-        raise Blocked(
-            "Invariant: intent expansion is enabled and requires a version-1 --intent document",
-            code="intent_expansion_required",
-            lines=[
-                f"TASK: {task}",
-                "STATUS: awaiting-intent-expansion",
-                f"GOAL-DIGEST: {receipt['goal_digest']}",
-                f"GUIDANCE: invariant task guidance {task}",
-                f"NEXT: rerun task begin {task} with the same arguments and --intent <file>",
-            ],
+    if adapter_ids:
+        receipt = receipts.set_lifecycle(
+            repo, task, adapters.begin_stage(adapter_ids), "", str(repo)
         )
-    if intent_file:
-        intent = _store_intent(repo, task, intent_file)
-        receipt["intent_nodes"] = {
-            "outcomes": intent.outcomes,
-            "acceptance": intent.acceptance,
-            "constraints": intent.constraints,
-        }
-        receipts.save(repo, task, receipt)
+    receipt["adapter_digest"] = adapters.digest(adapter_ids)
+    # Persist the selected adapter protocol before parsing host input so invalid
+    # input remains recoverable through the same task receipt.
+    receipts.save(repo, task, receipt)
+    gate = adapters.begin(
+        receipts.task_root(repo, task),
+        receipt,
+        adapter_inputs or {},
+    )
+    receipts.save(repo, task, receipt)
+    if gate:
+        _raise_adapter_gate(repo, task, receipt, gate)
     return _activate(repo, task, receipt, execution=resolved.execution)
 
 
@@ -201,7 +213,7 @@ def _status_lines(repo: Path, receipt: dict[str, object]) -> list[str]:
     target = str(receipt.get("integration_target") or "")
     target_head = git.resolve(repo, f"refs/heads/{target}") or "unborn"
     branch_head = git.resolve(repo, f"refs/heads/{branch}") if branch else None
-    expansion, review = _options(receipt)
+    adapter_ids = adapters.enabled(receipt)
     output = [
         f"TASK: {receipt.get('task')}",
         f"STATUS: {stage}",
@@ -213,12 +225,11 @@ def _status_lines(repo: Path, receipt: dict[str, object]) -> list[str]:
         f"BRANCH-HEAD: {branch_head or 'absent'}",
         f"WORKTREE: {lifecycle.get('worktree') or 'unknown'}",
         f"RECEIPT: {receipts.receipt_path(repo, str(receipt.get('task')))}",
-        f"INTENT-EXPANSION: {'enabled' if expansion else 'disabled'}",
-        f"OUTCOME-REVIEW: {'enabled' if review else 'disabled'}",
+        f"ADAPTERS: {', '.join(adapter_ids) or 'none'}",
     ]
-    semantic = receipts.task_root(repo, str(receipt.get("task"))) / "intent.yml"
-    if semantic.is_file():
-        output.append(f"SEMANTIC-RECORD: {semantic}")
+    adapter_root = receipts.task_root(repo, str(receipt.get("task"))) / "adapters"
+    if adapter_root.is_dir():
+        output.append(f"ADAPTER-STATE: {adapter_root}")
     return output
 
 
@@ -281,42 +292,6 @@ def _actual_paths(repo: Path, stage: str, base: str, branch: str) -> tuple[str |
     return None, sorted(set(filter(None, values)))
 
 
-def _required_outcomes(receipt: dict[str, object]) -> list[str]:
-    nodes = receipt.get("intent_nodes") if isinstance(receipt.get("intent_nodes"), dict) else {}
-    acceptance = nodes.get("acceptance") if isinstance(nodes.get("acceptance"), list) else []
-    outcomes = nodes.get("outcomes") if isinstance(nodes.get("outcomes"), list) else []
-    return [str(item) for item in (acceptance or outcomes or ["goal"])]
-
-
-def _validate_outcome_review(receipt: dict[str, object], assessment: Assessment, candidate_tree: str) -> None:
-    if assessment.candidate_tree != candidate_tree:
-        raise Blocked(
-            "Invariant: outcome review is required for the exact prospective tree",
-            code="outcome_review_required",
-            lines=[
-                f"STATUS: awaiting-outcome-review",
-                f"CANDIDATE-TREE: {candidate_tree}",
-                "NEXT: add candidate_tree and outcome_assessment entries to the assessment, then rerun task finish",
-            ],
-        )
-    by_reference = {item.reference: item for item in assessment.outcomes}
-    missing = [item for item in _required_outcomes(receipt) if item not in by_reference]
-    if missing:
-        raise Blocked(
-            f"Invariant: outcome review is missing {missing[0]}", code="outcome_review_required"
-        )
-    unresolved = [
-        by_reference[item]
-        for item in _required_outcomes(receipt)
-        if by_reference[item].disposition != "satisfied"
-    ]
-    if unresolved:
-        raise Blocked(
-            f"Invariant: outcome {unresolved[0].reference} is {unresolved[0].disposition}",
-            code="outcome_not_satisfied",
-        )
-
-
 def _complete_task(repo: Path, task: str, active_stage: str, branch: str, target: str) -> None:
     if active_stage == "implementing":
         current = git.current_branch(repo)
@@ -344,13 +319,16 @@ def finish(
     assessment_path: str,
     subject: str | None = None,
     checks: Iterable[str] = (),
+    adapter_inputs: Mapping[str, str | None] | None = None,
     continuation_apply: bool = False,
 ) -> list[str]:
     assessment = Assessment.load(assessment_path)
     receipt = receipts.load(repo, task)
+    _validate_adapter_receipt(receipt)
     lifecycle = receipt.get("lifecycle") if isinstance(receipt.get("lifecycle"), dict) else {}
     stage = str(lifecycle.get("stage") or "")
-    if stage not in {"implementing", "implementing-unborn", "awaiting-outcome-review"}:
+    adapter_gate = adapters.gate_for_stage(receipt, stage)
+    if stage not in {"implementing", "implementing-unborn"} and not adapters.is_review_stage(receipt, stage):
         raise Blocked(f"Invariant: task '{task}' is not ready to finish (stage '{stage}')")
     active_stage = "implementing-unborn" if str(receipt.get("integration_head")) == "unborn" else "implementing"
     branch = str(lifecycle.get("branch") or "")
@@ -426,16 +404,20 @@ def finish(
     scopes = tuple(
         line.removeprefix("TOPOLOGY: ") for line in reach_lines if line.startswith("TOPOLOGY: ")
     ) or ("area.root",)
-    _, review = _options(receipt)
-    if review:
+    expected_tree = None
+    if adapters.enabled(receipt):
         candidate_tree = landing.prospective_tree(repo, target, None if active_stage == "implementing-unborn" else branch)
-        try:
-            _validate_outcome_review(receipt, assessment, candidate_tree)
-        except Blocked:
-            receipts.set_lifecycle(repo, task, "awaiting-outcome-review", branch, str(repo))
-            raise
-        if stage == "awaiting-outcome-review":
+        gate = adapters.review_candidate(
+            receipts.task_root(repo, task),
+            receipt,
+            candidate_tree,
+            adapter_inputs or {},
+        )
+        if gate:
+            _raise_adapter_gate(repo, task, receipt, gate)
+        if adapter_gate:
             receipts.set_lifecycle(repo, task, active_stage, branch, str(repo))
+        expected_tree = candidate_tree
 
     combined_checks = tuple(sorted(set([*assessment.checks, *checks])))
     request = landing.LandRequest(
@@ -453,6 +435,7 @@ def finish(
         checks=combined_checks,
         target=target,
         allow_open=assessment.allow_open,
+        expected_tree=expected_tree,
     )
     if resolved.execution == "assisted" and not continuation_apply:
         local = receipts.task_root(repo, task)
@@ -495,9 +478,11 @@ def finish(
 def prepare_assessment(repo: Path, task: str) -> tuple[dict[str, object], dict[str, object]]:
     """Compile a candidate-bound assessment draft and its remaining semantic requirements."""
     receipt = receipts.load(repo, task)
+    _validate_adapter_receipt(receipt)
     lifecycle = receipt.get("lifecycle") if isinstance(receipt.get("lifecycle"), dict) else {}
     stage = str(lifecycle.get("stage") or "")
-    if stage not in {"implementing", "implementing-unborn", "awaiting-outcome-review"}:
+    adapter_gate = adapters.gate_for_stage(receipt, stage)
+    if stage not in {"implementing", "implementing-unborn"} and not adapters.is_review_stage(receipt, stage):
         raise Blocked(f"Invariant: task '{task}' has no candidate to assess (stage '{stage}')")
     active_stage = (
         "implementing-unborn"
@@ -624,19 +609,9 @@ def prepare_assessment(repo: Path, task: str) -> tuple[dict[str, object], dict[s
         "checks": [],
         "allow_open": allow_open,
     }
-    _, outcome_review = _options(receipt)
-    if outcome_review:
-        assessment["candidate_tree"] = candidate_tree
-        nodes = receipt.get("intent_nodes") if isinstance(receipt.get("intent_nodes"), dict) else {}
-        assessment["outcome_assessment"] = [
-            {
-                "satisfies": reference,
-                "disposition": "unresolved",
-                "prose": "Review this acceptance condition against the exact candidate tree.",
-                "evidence": [],
-            }
-            for reference in nodes.get("acceptance", [])
-        ]
+    adapter_analysis = adapters.prepare_candidate(
+        receipts.task_root(repo, task), receipt, candidate_tree
+    )
     required: list[dict[str, object]] = []
     if boundary == "unresolved":
         required.append(
@@ -672,6 +647,7 @@ def prepare_assessment(repo: Path, task: str) -> tuple[dict[str, object], dict[s
         )
     analysis: dict[str, object] = {
         "candidate_tree": candidate_tree,
+        "adapters": adapter_analysis,
         "reach": reach,
         "inferred": {
             "paths": paths,
@@ -689,22 +665,16 @@ def prepare_assessment(repo: Path, task: str) -> tuple[dict[str, object], dict[s
 
 def continue_task(repo: Path, task: str, *, apply: bool = False) -> list[str]:
     receipt = receipts.load(repo, task)
+    _validate_adapter_receipt(receipt)
     lifecycle = receipt.get("lifecycle") if isinstance(receipt.get("lifecycle"), dict) else {}
     stage = str(lifecycle.get("stage") or "")
     branch = str(lifecycle.get("branch") or "")
     target = str(receipt.get("integration_target") or "")
     if stage in {"implementing", "implementing-unborn"}:
         return _status_lines(repo, receipt)
-    if stage == "awaiting-intent-expansion":
-        raise Blocked(
-            f"Invariant: task '{task}' needs semantic input; rerun task begin with --intent <file>",
-            code="intent_expansion_required",
-        )
-    if stage == "awaiting-outcome-review":
-        raise Blocked(
-            f"Invariant: task '{task}' needs an outcome assessment; rerun task finish with the reviewed file",
-            code="outcome_review_required",
-        )
+    adapter_gate = adapters.gate_for_stage(receipt, stage)
+    if adapter_gate:
+        raise Blocked(adapter_gate.message, code=adapter_gate.code, lines=list(adapter_gate.lines))
     if stage not in {"awaiting-branch", "awaiting-landing"}:
         raise Blocked(f"Invariant: task '{task}' cannot continue from stage '{stage or 'unknown'}")
     if not apply:
@@ -749,7 +719,6 @@ def task_guidance(repo: Path, task: str) -> list[str]:
     lifecycle = receipt.get("lifecycle") if isinstance(receipt.get("lifecycle"), dict) else {}
     scope = receipt.get("scope") if isinstance(receipt.get("scope"), dict) else {}
     intent = receipt.get("intent") if isinstance(receipt.get("intent"), dict) else {}
-    expansion, review = _options(receipt)
     domains = [str(item) for item in scope.get("domains", [])]
     initial_paths = [str(item) for item in scope.get("paths", [])]
     interfaces = [str(item) for item in scope.get("interfaces", [])]
@@ -781,9 +750,9 @@ def task_guidance(repo: Path, task: str) -> list[str]:
         f"Interfaces: {', '.join(interfaces) or 'none selected'}",
         f"Domains: {', '.join(domains) or 'none selected'}",
     ]
-    semantic = receipts.task_root(repo, task) / "intent.yml"
-    if semantic.is_file():
-        output.extend(["", "# Expanded task intent", "", *semantic.read_text(encoding="utf-8").splitlines()])
+    adapter_context = adapters.context(receipts.task_root(repo, task), receipt)
+    if adapter_context:
+        output.extend(["", *adapter_context])
     rows = governance.display_rows(repo, domains, accepted_at)
     if domains:
         output.extend(["", "# Selected durable intent", "", *rows])
@@ -796,13 +765,12 @@ def task_guidance(repo: Path, task: str) -> list[str]:
     output.extend(
         [
             "",
-            *guidance.for_stage(
-                str(lifecycle.get("stage") or "briefed"),
-                intent_expansion=expansion,
-                outcome_review=review,
-            ).splitlines(),
+            *guidance.for_stage(str(lifecycle.get("stage") or "briefed")).splitlines(),
         ]
     )
+    adapter_guidance = adapters.guidance(receipt, stage)
+    if adapter_guidance:
+        output.extend(["", *adapter_guidance])
     return output
 
 

@@ -76,6 +76,13 @@ invariant --format json task finish fix-job-recovery
 worktree. `task finish` uses that draft by default. A failed finish preserves the task receipt and
 work branch so the same task ID can be inspected and resumed.
 
+When `adapters.task_acceptance` is enabled, `task begin` first asks the agent for a local acceptance
+contract. The adapter preserves the original goal digest, expands the request, and records an
+`inspection`, `targeted`, or `broad` verification level. After implementation, `task assessment
+prepare` also writes a candidate-bound review beside that contract. The agent resolves its results
+with proportional evidence before finishing; a local button-label change may use source or visual
+inspection rather than a new persisted test.
+
 ## Initial governance
 
 Initial governance is one resumable session with distinct audit, adoption, and verification phases:
@@ -116,6 +123,8 @@ invariant evidence audit schema
 invariant evidence audit example
 invariant task assessment schema
 invariant task assessment example
+invariant task acceptance schema
+invariant task acceptance example
 ```
 
 For automation, `--format json` emits the compact protocol envelope. Add `--verbose` only when the
