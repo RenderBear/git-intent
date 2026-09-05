@@ -14,8 +14,19 @@ git -C "$fixture" init -qb main
 git -C "$fixture" config user.name test
 git -C "$fixture" config user.email test@example.com
 git -C "$fixture" config commit.gpgsign false
-mkdir -p "$fixture/.invariant" "$fixture/src"
+mkdir -p "$fixture/.invariant" "$fixture/docs" "$fixture/src"
 printf 'one\n' >"$fixture/src/a.txt"
+cat >"$fixture/docs/architecture.md" <<'EOF'
+# Architecture
+
+## Source ownership
+
+The source domain owns the durable value and consumers may not redefine it.
+
+## Unrelated material
+
+This section is not selected for the source task.
+EOF
 cat >"$fixture/.invariant/config.yml" <<'EOF'
 version: 1
 execution: auto
@@ -23,8 +34,22 @@ lifecycle:
   intent_expansion: true
   outcome_review: true
 EOF
+cat >"$fixture/.invariant/DOMAINS.yml" <<'EOF'
+version: 1
+domains:
+  - id: source
+    responsibility: Owns source behavior.
+    authority: user:task:test#turn-1
+    architecture: [architecture:docs/architecture.md#source-ownership]
+EOF
 git -C "$fixture" add -A
 git -C "$fixture" commit -qm seed
+(cd "$fixture" && "$cli" evidence discovery capture implicit-source \
+  --observation "Source recovery ownership is still implicit." \
+  --evidence repo:src/a.txt --path src --domain source \
+  --basis-prose "Code and architecture agree on ownership, but recovery behavior remains incomplete." >/dev/null)
+git -C "$fixture" add .invariant/discoveries/implicit-source.yml
+git -C "$fixture" commit -qm "record source discovery"
 
 ok() { echo "ok - $1"; }
 die() { echo "not ok - $1"; exit 1; }
@@ -32,7 +57,7 @@ die() { echo "not ok - $1"; exit 1; }
 goal='Change the source with explicit acceptance'
 goal_digest=$(printf '%s' "$goal" | git -C "$fixture" hash-object --stdin)
 if out=$(cd "$fixture" && "$cli" task begin semantic-flow --goal "$goal" \
-    --posture local --boundary no-record --path src/a.txt 2>&1); then
+    --posture bounded --boundary no-record --path src/a.txt --domain source 2>&1); then
   die "intent expansion was silently skipped"
 fi
 printf '%s\n' "$out" | grep -q '^STATUS: awaiting-intent-expansion$' ||
@@ -56,19 +81,42 @@ intent:
       prose: Existing repository intent remains unchanged.
 EOF
 out=$(cd "$fixture" && "$cli" task begin semantic-flow --goal "$goal" \
-  --posture local --boundary no-record --path src/a.txt --intent "$intent_file")
+  --posture bounded --boundary no-record --path src/a.txt --domain source --intent "$intent_file")
 printf '%s\n' "$out" | grep -q '^STATUS: implementing$' ||
   die "expanded task did not enter implementation"
 branch=$(printf '%s\n' "$out" | sed -n 's/^BRANCH: //p')
+cat >"$fixture/docs/architecture.md" <<'EOF'
+# Architecture
+
+## Source ownership
+
+Candidate prose must not become the premise used to review its own change.
+EOF
 guidance=$(cd "$fixture" && "$cli" task guidance semantic-flow)
 printf '%s\n' "$guidance" | grep -q '^# Active task context$' ||
   die "compiled guidance omitted the active semantic envelope"
 printf '%s\n' "$guidance" | grep -q '^# Expanded task intent$' ||
   die "compiled guidance omitted the task-specific prose"
+printf '%s\n' "$guidance" | grep -q '^# Durable semantic reasoning$' ||
+  die "stage guidance omitted durable semantic reasoning"
+printf '%s\n' "$guidance" | grep -q '^# Repository archaeology$' ||
+  die "stage guidance omitted repository archaeology"
+printf '%s\n' "$guidance" | grep -q '^# Selected architecture prose$' ||
+  die "compiled guidance omitted selected architecture prose"
+printf '%s\n' "$guidance" | grep -q 'The source domain owns the durable value and consumers may not redefine it.' ||
+  die "compiled guidance did not resolve the selected architecture section"
+if printf '%s\n' "$guidance" | grep -q 'Candidate prose must not become the premise'; then
+  die "compiled guidance read architecture from the candidate instead of accepted ground"
+fi
+printf '%s\n' "$guidance" | grep -q '^DISCOVERY-CONTEXT: implicit-source (open)$' ||
+  die "compiled guidance omitted the relevant discovery"
+printf '%s\n' "$guidance" | grep -q 'Source recovery ownership is still implicit.' ||
+  die "compiled guidance reduced discovery reasoning to an identifier"
 printf '%s\n' "$guidance" | grep -q '^# Progressive discovery$' ||
   die "stage guidance omitted progressive discovery prose"
 printf '%s\n' "$guidance" | grep -q '^# Optional outcome review$' ||
   die "stage guidance omitted the enabled outcome review"
+git -C "$fixture" restore docs/architecture.md
 ok "free-form brief, discovery, coordinate, and landing prose is compiled for the active stage"
 
 printf 'two\n' >"$fixture/src/a.txt"
@@ -79,11 +127,11 @@ version: 1
 goal_digest: $goal_digest
 paths: [src/a.txt]
 interfaces: []
-domains: []
+domains: [source]
 boundary:
   disposition: no-record
 governance: []
-architecture_reviews: []
+architecture_reviews: [architecture:docs/architecture.md#source-ownership]
 checks: []
 EOF
 if out=$(cd "$fixture" && "$cli" task finish semantic-flow --assessment "$assessment" 2>&1); then
@@ -115,7 +163,7 @@ ok "outcome review binds stable acceptance IDs to the exact candidate tree"
 
 out=$(cd "$fixture" && "$cli" evidence discovery capture missing-adr \
   --observation "No ADR describes the source boundary." \
-  --searched docs/adr --path src --related task:document-source-boundary)
+  --searched docs/adr --path src --domain source --related task:document-source-boundary)
 printf '%s\n' "$out" | grep -q '^STATUS: open$' || die "discovery was not captured"
 discovery="$fixture/.invariant/discoveries/missing-adr.yml"
 grep -q '^basis:' "$discovery" || die "discovery basis is missing"

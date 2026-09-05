@@ -418,8 +418,10 @@ def _discovery_records(repo: Path) -> list[tuple[Path, dict[str, Any]]]:
     return result
 
 
-def discovery_lines(repo: Path, paths: list[str], selected_domains: list[str]) -> list[str]:
-    output: list[str] = []
+def _relevant_discoveries(
+    repo: Path, paths: list[str], selected_domains: list[str]
+) -> list[tuple[dict[str, Any], str, str | None]]:
+    output: list[tuple[dict[str, Any], str, str | None]] = []
     selected = set(selected_domains)
     head = git.resolve(repo, "HEAD")
     for _, row in _discovery_records(repo):
@@ -448,10 +450,56 @@ def discovery_lines(repo: Path, paths: list[str], selected_domains: list[str]) -
                     state = "needs-review"
                     detail = first_path_intersection(changed, evidence)
         identifier = row.get("id")
+        if identifier:
+            output.append((row, state, detail))
+    return output
+
+
+def discovery_lines(repo: Path, paths: list[str], selected_domains: list[str]) -> list[str]:
+    output: list[str] = []
+    for row, state, detail in _relevant_discoveries(repo, paths, selected_domains):
+        identifier = row.get("id")
         if detail:
             output.append(f"DISCOVERY: {identifier} ({state} — changed evidence {detail})")
         else:
             output.append(f"DISCOVERY: {identifier} ({state})")
+    return output
+
+
+def discovery_context(repo: Path, paths: list[str], selected_domains: list[str]) -> list[str]:
+    """Compile relevant discovery prose without granting it governing standing."""
+
+    output: list[str] = []
+    for row, state, detail in _relevant_discoveries(repo, paths, selected_domains):
+        basis = row.get("basis") if isinstance(row.get("basis"), dict) else {}
+        relevance = row.get("relevance") if isinstance(row.get("relevance"), dict) else {}
+        identifier = row.get("id")
+        suffix = f" — changed evidence {detail}" if detail else ""
+        output.append(f"DISCOVERY-CONTEXT: {identifier} ({state}{suffix})")
+
+        def prose(label: str, value: Any) -> None:
+            if not isinstance(value, str) or not value.strip():
+                return
+            output.append(f"{label}:")
+            output.extend(f"  {line}" for line in value.strip().splitlines())
+
+        prose("OBSERVATION", row.get("observation") or row.get("statement"))
+        prose("BASIS", basis.get("prose"))
+        evidence = refs(basis.get("evidence")) + refs(row.get("evidence"))
+        searched = refs(basis.get("searched"))
+        relevant_domains = refs(relevance.get("domains")) + refs(row.get("domains"))
+        relevant_paths = refs(relevance.get("paths")) + refs(row.get("paths"))
+        related = refs(relevance.get("related"))
+        if evidence:
+            output.append(f"EVIDENCE: {', '.join(sorted(set(evidence)))}")
+        if searched:
+            output.append(f"SEARCHED: {', '.join(sorted(set(searched)))}")
+        if relevant_domains:
+            output.append(f"DISCOVERY-DOMAINS: {', '.join(sorted(set(relevant_domains)))}")
+        if relevant_paths:
+            output.append(f"DISCOVERY-PATHS: {', '.join(sorted(set(relevant_paths)))}")
+        if related:
+            output.append(f"RELATED: {', '.join(sorted(set(related)))}")
     return output
 
 
@@ -587,9 +635,9 @@ def governing_rows(repo: Path, selected: Iterable[str], at: str | None = None) -
     return sorted(rows)
 
 
-def display_rows(repo: Path, selected: Iterable[str]) -> list[str]:
+def display_rows(repo: Path, selected: Iterable[str], at: str | None = None) -> list[str]:
     output: set[str] = set()
-    for row in governing_rows(repo, selected):
+    for row in governing_rows(repo, selected, at):
         values = row.split("|")
         if values[0] == "DOMAIN":
             output.add(f"DOMAIN {values[1]} — {values[3]}")
@@ -603,6 +651,41 @@ def display_rows(repo: Path, selected: Iterable[str]) -> list[str]:
             output.add(f"LEGACY-CONSTRAINT {values[1]} — {values[6]}")
     lines = sorted(output)
     return [*lines, f"ROWS: {len(lines)}"]
+
+
+def architecture_context(
+    repo: Path, selected: Iterable[str], at: str | None = None
+) -> list[str]:
+    """Return canonical selected architecture sections, not only their pointers."""
+
+    selected_values = list(selected)
+    expanded = set(expand_domains(repo, selected_values, at))
+    selected_contracts = _domain_contract_ids(repo, expanded, at)
+    locators: set[str] = set()
+    for row in domains(repo, at):
+        if row.get("id") in expanded:
+            locators.update(architecture_refs(row.get("architecture", row.get("material"))))
+    for row in contracts(repo, at):
+        if expanded.intersection(refs(row.get("between"))) or row.get("id") in selected_contracts:
+            locators.update(architecture_refs(row.get("architecture", row.get("material"))))
+    for row in constraints(repo, at):
+        if expanded.intersection(refs(row.get("applies_to"))):
+            locators.update(architecture_refs(row.get("material")))
+    output: list[str] = []
+    for locator in sorted(locators):
+        path_anchor = locator.removeprefix("architecture:")
+        if "#" not in path_anchor:
+            continue
+        path, anchor = path_anchor.split("#", 1)
+        content = _content(repo, at, path)
+        bounds = _section_bounds(content, anchor)
+        output.append(f"ARCHITECTURE-CONTEXT: {locator}")
+        if not bounds:
+            output.append("  [selected section is unavailable]")
+            continue
+        lines = content.splitlines()[bounds[0] - 1 : bounds[1]]
+        output.extend(f"  {line}" if line else "" for line in lines)
+    return output
 
 
 def digest(repo: Path, selected: Iterable[str], at: str | None = None) -> str:

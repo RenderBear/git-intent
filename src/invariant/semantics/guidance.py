@@ -10,18 +10,24 @@ def read(name: str) -> str:
 
 def for_stage(stage: str, *, intent_expansion: bool, outcome_review: bool) -> str:
     if stage == "awaiting-intent-expansion":
-        names = ["intent-expansion"]
+        names = ["intent-expansion", "semantic-reasoning", "repository-archaeology"]
     elif stage == "awaiting-outcome-review":
-        names = ["outcome-review"]
+        names = ["semantic-reasoning", "repository-archaeology", "outcome-review"]
     elif stage == "awaiting-landing":
-        names = ["land"]
+        names = ["semantic-reasoning", "repository-archaeology", "land"]
     elif stage in {"implementing", "implementing-unborn"}:
-        names = ["brief", "discovery", "coordinate", "land"]
+        names = [
+            "brief",
+            "semantic-reasoning",
+            "repository-archaeology",
+            "discovery",
+            "coordinate",
+            "land",
+        ]
         if outcome_review:
             names.append("outcome-review")
     else:
-        names = ["brief"]
+        names = ["brief", "semantic-reasoning", "repository-archaeology"]
         if intent_expansion:
             names.insert(0, "intent-expansion")
     return "\n\n".join(read(name) for name in names)
-

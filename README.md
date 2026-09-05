@@ -106,7 +106,21 @@ lifecycle:
 
 Both default off. They are semantic bookends, not replacements for briefing, durable-meaning
 review, verification, or landing. Run `invariant task guidance <task-id>` to compile the free-form
-brief, discovery, coordination, and landing guidance relevant to the current stage.
+brief, semantic-reasoning, repository-archaeology, discovery, coordination, and landing guidance
+relevant to the current stage.
+
+The compiled context deliberately keeps prose first-class. Stable IDs, paths, and domains are
+retrieval coordinates; they do not replace interpretation. For the active task, the CLI includes
+the full expanded intent when enabled, the exact selected architecture sections from the task's
+accepted integration ground, and the observation and causal basis of relevant discoveries. The
+reasoning guide then asks the host to distinguish requested meaning, accepted meaning, and observed
+behavior; trace responsibility, reliance, state, time, and failure; triangulate code, tests,
+schemas, configuration, documentation, history, and operations; and preserve contradictions or
+meaningful absences as explicit discoveries.
+
+This restores depth without coupling semantics to the lifecycle. Context selection and exact-tree
+retrieval are deterministic mechanics. Interpretation remains free-form prose, and the lifecycle
+only decides when that compiled context is presented.
 
 ## Progressive discovery
 

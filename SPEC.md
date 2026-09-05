@@ -541,6 +541,33 @@ readable during migration.
 Evidence changes can make an audit or discovery mechanically suspect. Whether changed evidence
 contradicts a finding remains semantic judgment.
 
+### 11.1 Repository archaeology and semantic reasoning
+
+Managed guidance includes prose-rich repository archaeology and semantic reasoning. The purpose is
+to reconstruct relevant architecture in repositories where code, tests, schemas, configuration,
+documentation, history, and operational behavior may be incomplete or contradictory. Investigation
+starts from the requested behavior, traces it through ownership, state, interfaces, time, failure,
+and consumers, and expands only while new evidence could change implementation, durable-boundary
+judgment, or verification.
+
+Typed outcomes, acceptance IDs, paths, interfaces, and domains are retrieval and invalidation
+coordinates. They do not bound the form of semantic reasoning or replace its prose. The semantic
+pass keeps requested meaning, accepted repository meaning, and observed behavior distinct; records
+disagreement rather than silently choosing a source; and treats bounded absence as evidence only
+when the searched scope and exact tree are explicit.
+
+`task guidance` compiles the selected context rather than merely printing locators. It includes:
+
+- the task's free-form expanded intent, when enabled;
+- selected durable rows and their anchored architecture sections at the captured integration head;
+- the observation, basis, evidence, searched scope, and relevance of open discoveries intersecting
+  the task;
+- the prose guidance applicable to the current stage.
+
+Architecture is read from the captured accepted ground so candidate edits cannot silently rewrite
+the premise used to interpret their own change. Discoveries remain non-authoritative and may evolve
+progressively; including their prose in context does not promote them to governance.
+
 When the resolution does adopt durable intent, it edits the smallest canonical architecture,
 domain, or contract record and then runs `invariant state validate`. The CLI validates adoption; it
 does not manufacture accepted meaning.

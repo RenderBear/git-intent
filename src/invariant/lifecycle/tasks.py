@@ -523,6 +523,8 @@ def task_guidance(repo: Path, task: str) -> list[str]:
     domains = [str(item) for item in scope.get("domains", [])]
     paths = [str(item) for item in scope.get("paths", [])]
     interfaces = [str(item) for item in scope.get("interfaces", [])]
+    captured_head = str(receipt.get("integration_head") or "")
+    accepted_at = None if captured_head in {"", "unborn"} else captured_head
     output = [
         "# Active task context",
         "",
@@ -530,6 +532,7 @@ def task_guidance(repo: Path, task: str) -> list[str]:
         f"Stage: {lifecycle.get('stage') or 'briefed'}",
         f"Posture: {intent.get('posture') or 'unknown'}",
         f"Boundary: {intent.get('boundary') or 'unknown'}",
+        f"Accepted ground: {captured_head or 'unknown'}",
         f"Paths: {', '.join(paths) or 'none selected'}",
         f"Interfaces: {', '.join(interfaces) or 'none selected'}",
         f"Domains: {', '.join(domains) or 'none selected'}",
@@ -537,10 +540,13 @@ def task_guidance(repo: Path, task: str) -> list[str]:
     semantic = receipts.task_root(repo, task) / "intent.yml"
     if semantic.is_file():
         output.extend(["", "# Expanded task intent", "", *semantic.read_text(encoding="utf-8").splitlines()])
-    rows = governance.display_rows(repo, domains)
+    rows = governance.display_rows(repo, domains, accepted_at)
     if domains:
         output.extend(["", "# Selected durable intent", "", *rows])
-    discoveries = governance.discovery_lines(repo, paths, domains)
+    architecture = governance.architecture_context(repo, domains, accepted_at)
+    if architecture:
+        output.extend(["", "# Selected architecture prose", "", *architecture])
+    discoveries = governance.discovery_context(repo, paths, domains)
     if discoveries:
         output.extend(["", "# Relevant discoveries", "", *discoveries])
     output.extend(

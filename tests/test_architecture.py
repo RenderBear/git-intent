@@ -123,7 +123,11 @@ def test_stage_guidance_remains_free_form_and_composable() -> None:
         "implementing", intent_expansion=True, outcome_review=True
     )
     assert "# Brief" in text
+    assert "# Durable semantic reasoning" in text
+    assert "# Repository archaeology" in text
     assert "# Progressive discovery" in text
     assert "# Coordinate" in text
     assert "# Land" in text
     assert "# Optional outcome review" in text
+    assert "Requested meaning" in text
+    assert "Trace behavior end to end" in text
