@@ -3,8 +3,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import yaml
+
+from invariant.cli.output import CommandResult
 from invariant.errors import Blocked
 from invariant.mechanics import audit, config, git
+from invariant.semantics import schemas
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -33,6 +37,10 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         "--domain", action="append", default=[], help="existing domain relevant to the audit"
     )
     save.set_defaults(_handler=_save, _command="evidence.audit.save")
+    schema = audits.add_parser("schema", help="Print the complete audit findings input schema")
+    schema.set_defaults(_handler=_schema, _command="evidence.audit.schema")
+    example = audits.add_parser("example", help="Print a valid audit findings input example")
+    example.set_defaults(_handler=_example, _command="evidence.audit.example")
     fresh = commands.add_parser("fresh")
     fresh.add_argument("locator")
     fresh.add_argument("--at", default="HEAD")
@@ -93,6 +101,20 @@ def _save(args: argparse.Namespace) -> list[str]:
         domains=args.domain,
         authority=_authority_mode(repo),
     )
+
+
+def _yaml_lines(value: object) -> list[str]:
+    return yaml.safe_dump(value, sort_keys=False, allow_unicode=True).rstrip().splitlines()
+
+
+def _schema(_: argparse.Namespace) -> CommandResult:
+    value = schemas.audit_input_schema()
+    return CommandResult(_yaml_lines(value), {"schema": value})
+
+
+def _example(_: argparse.Namespace) -> CommandResult:
+    value = schemas.audit_input_example()
+    return CommandResult(_yaml_lines(value), {"example": value})
 
 
 def _fresh(args: argparse.Namespace) -> list[str]:

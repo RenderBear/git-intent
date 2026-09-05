@@ -70,6 +70,7 @@ EOF
 cat >"$fixture/.invariant/audits/ocr.yml" <<EOF
 version: 1
 id: ocr
+created_at: '2026-09-05T00:00:00Z'
 ground: $ground
 tree: $tree
 mode: scope

@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import json
 import os
+import platform
+import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
+from hashlib import sha256
 from pathlib import Path
 from typing import Iterable
 
 from invariant.errors import Blocked, InvariantError, RemotePushFailed
 from invariant.mechanics import audit, config, coordinate, git, governance, state
+from invariant.mechanics.documents import dump_yaml, load_yaml
 
 
 @dataclass(frozen=True)
@@ -357,66 +363,238 @@ def _governance_exists(repo: Path, reference: str) -> bool:
     return False
 
 
-def _run_locator(repo: Path, locator: str) -> list[str]:
-    output = [f"CHECK: running — {locator}"]
+@dataclass(frozen=True)
+class ResolvedVerifier:
+    command: tuple[str, ...]
+    cwd: Path
+    cwd_identity: str
+    cache: str
+    timeout: int
+    identity: tuple[str, ...]
+
+
+def _repository_path(repo: Path, value: str, label: str) -> Path:
+    relative = Path(value)
+    if not value or relative.is_absolute() or ".." in relative.parts:
+        raise Blocked(
+            f"Invariant: {label} path '{value}' must stay inside the candidate repository",
+            code="verification_failed",
+        )
+    candidate = repo / relative
+    try:
+        candidate.resolve().relative_to(repo.resolve())
+    except (OSError, ValueError):
+        raise Blocked(
+            f"Invariant: {label} path '{value}' escapes the candidate repository",
+            code="verification_failed",
+        ) from None
+    return candidate
+
+
+def _python_test_command(repo: Path, spec: str) -> ResolvedVerifier:
+    path, separator, selector = spec.partition("::")
+    candidate = _repository_path(repo, path, "test verifier")
+    workspace = candidate.parent
+    while workspace != repo and not (workspace / "pyproject.toml").is_file():
+        workspace = workspace.parent
+    if not (workspace / "pyproject.toml").is_file():
+        workspace = repo
+    relative = candidate.relative_to(workspace).as_posix()
+    selected = f"{relative}::{selector}" if separator else relative
+    if (workspace / "uv.lock").is_file():
+        command = ("uv", "run", "pytest", selected)
+        runner = "uv-pytest"
+        cache = "exact-tree"
+    else:
+        command = ("python3", "-m", "pytest", selected)
+        runner = "python-pytest"
+        cache = "never"
+    return ResolvedVerifier(
+        command,
+        workspace,
+        workspace.relative_to(repo).as_posix() or ".",
+        cache,
+        0,
+        (runner, spec),
+    )
+
+
+def _resolve_verifier(repo: Path, locator: str, candidate_tree: Candidate) -> ResolvedVerifier:
+    if locator.startswith("runner:"):
+        value = locator.removeprefix("runner:")
+        name, separator, target = value.partition("#")
+        if not separator or not name or not target:
+            raise Blocked(
+                f"Invariant: runner verifier '{locator}' must use runner:<name>#<target>",
+                code="verification_failed",
+            )
+        resolved = config.resolve_at(repo, candidate_tree.commit, candidate_tree.target)
+        runner = resolved.verification.named(name)
+        if runner is None:
+            raise Blocked(
+                f"Invariant: verifier runner '{name}' is not registered in .invariant/config.yml",
+                code="verification_failed",
+            )
+        working = _repository_path(repo, runner.cwd, f"verifier runner '{name}' cwd")
+        if not working.is_dir():
+            raise Blocked(
+                f"Invariant: verifier runner '{name}' cwd '{runner.cwd}' is absent from the candidate",
+                code="verification_failed",
+            )
+        command = tuple(part.replace("{target}", target) for part in runner.command)
+        return ResolvedVerifier(
+            command,
+            working,
+            runner.cwd,
+            runner.cache,
+            runner.timeout,
+            ("runner", name, target, *runner.command),
+        )
     if locator.startswith("command:"):
         path = locator.removeprefix("command:")
-        candidate = repo / path
+        candidate = _repository_path(repo, path, "command verifier")
         if not candidate.is_file() or not candidate.stat().st_mode & 0o111:
             raise Blocked(
                 f"Invariant: command verifier '{path}' is missing or not executable",
                 code="verification_failed",
-                lines=output,
             )
-        command = [str(candidate)]
-    elif locator.startswith("test:"):
+        return ResolvedVerifier(
+            (str(candidate),), repo, ".", "never", 0, ("command", path)
+        )
+    if locator.startswith("test:"):
         spec = locator.removeprefix("test:")
         path = spec.split("::", 1)[0]
-        candidate = repo / path
+        candidate = _repository_path(repo, path, "test verifier")
         if path.endswith(".sh"):
-            command = ["sh", path]
-        elif path.endswith(".py"):
-            command = ["python3", "-m", "pytest", spec]
-        elif candidate.is_file() and candidate.stat().st_mode & 0o111:
-            command = [str(candidate)]
-        else:
-            raise Blocked(
-                f"Invariant: test verifier '{locator}' is not directly executable; use a command: wrapper",
-                code="verification_failed",
-                lines=output,
+            return ResolvedVerifier(
+                ("sh", path), repo, ".", "never", 0, ("shell-test", spec)
             )
-    elif locator.startswith("schema:"):
+        if path.endswith(".py"):
+            return _python_test_command(repo, spec)
+        if candidate.is_file() and candidate.stat().st_mode & 0o111:
+            return ResolvedVerifier(
+                (str(candidate),), repo, ".", "never", 0, ("executable-test", spec)
+            )
+        raise Blocked(
+            f"Invariant: test verifier '{locator}' is not directly executable; use a registered runner or command: wrapper",
+            code="verification_failed",
+        )
+    if locator.startswith("schema:"):
         path = locator.removeprefix("schema:").split("#", 1)[0]
-        candidate = repo / path
+        candidate = _repository_path(repo, path, "schema verifier")
         if not candidate.is_file() or not candidate.stat().st_mode & 0o111:
             raise Blocked(
-                f"Invariant: schema verifier '{locator}' needs an executable command: wrapper",
+                f"Invariant: schema verifier '{locator}' needs a registered runner or executable command: wrapper",
                 code="verification_failed",
-                lines=output,
             )
-        command = [str(candidate)]
-    elif locator.startswith("contract:"):
+        return ResolvedVerifier(
+            (str(candidate),), repo, ".", "never", 0, ("schema", locator)
+        )
+    if locator.startswith("contract:"):
         raise Blocked(
             f"Invariant: nested contract verifier '{locator}' must resolve to an executable verifier before landing",
             code="verification_failed",
-            lines=output,
         )
-    else:
+    raise Blocked(
+        f"Invariant: unsupported check locator '{locator}'",
+        code="verification_failed",
+    )
+
+
+def _executable_fingerprint(repo: Path, command: tuple[str, ...]) -> dict[str, object]:
+    command_path = Path(command[0])
+    try:
+        return {"repository_path": command_path.resolve().relative_to(repo.resolve()).as_posix()}
+    except (OSError, ValueError):
+        pass
+    executable = shutil.which(command[0]) or command[0]
+    path = Path(executable)
+    value: dict[str, object] = {"path": str(path)}
+    try:
+        stat = path.stat()
+        value.update({"size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
+    except OSError:
+        value["unresolved"] = True
+    return value
+
+
+def _verifier_mechanics_digest() -> str:
+    digest = sha256()
+    for name in ("landing.py", "config.py", "state.py", "governance.py"):
+        path = Path(__file__).with_name(name)
+        digest.update(name.encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _verification_paths(repo: Path, key: str) -> tuple[Path, Path]:
+    root = git.common_dir(repo) / "invariant" / "verifications"
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"{key}.yml", root / f"{key}.log"
+
+
+def _run_locator(repo: Path, locator: str, candidate: Candidate) -> tuple[list[str], bool]:
+    output = [f"CHECK: running — {locator}"]
+    resolved = _resolve_verifier(repo, locator, candidate)
+    payload = {
+        "protocol": 1,
+        "tree": candidate.tree,
+        "base": candidate.old or "unborn",
+        "target": candidate.target,
+        "locator": locator,
+        "identity": list(resolved.identity),
+        "cwd": resolved.cwd_identity,
+        "command": list(resolved.command[1:]),
+        "executable": _executable_fingerprint(repo, resolved.command),
+        "platform": platform.platform(),
+        "python": sys.version,
+        "mechanics": _verifier_mechanics_digest(),
+    }
+    key = sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    receipt_path, log_path = _verification_paths(repo, key)
+    if resolved.cache == "exact-tree" and receipt_path.is_file() and log_path.is_file():
+        try:
+            raw = load_yaml(receipt_path)
+        except InvariantError:
+            raw = None
+        if isinstance(raw, dict) and raw.get("key") == key and raw.get("status") == "passed":
+            return [f"CHECK: reused — {locator}", f"LOG: {log_path}"], True
+    try:
+        completed = subprocess.run(
+            list(resolved.command),
+            cwd=resolved.cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=resolved.timeout or None,
+        )
+    except subprocess.TimeoutExpired as exc:
+        combined = "".join(
+            value.decode() if isinstance(value, bytes) else (value or "")
+            for value in (exc.stdout, exc.stderr)
+        )
+        log_path.write_text(combined, encoding="utf-8")
         raise Blocked(
-            f"Invariant: unsupported check locator '{locator}'",
+            f"Invariant: verifier timed out — {locator}",
             code="verification_failed",
-            lines=output,
-        )
-    completed = subprocess.run(command, cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            lines=[*output, *combined.rstrip("\n").splitlines(), f"LOG: {log_path}"],
+        ) from exc
+    combined = ""
     if completed.stdout:
-        output.extend(completed.stdout.rstrip("\n").splitlines())
+        combined += completed.stdout
     if completed.stderr:
-        output.extend(completed.stderr.rstrip("\n").splitlines())
+        combined += completed.stderr
+    log_path.write_text(combined, encoding="utf-8")
     if completed.returncode:
         raise Blocked(
-            f"Invariant: verifier failed — {locator}", code="verification_failed", lines=output
+            f"Invariant: verifier failed — {locator}",
+            code="verification_failed",
+            lines=[*output, *combined.rstrip("\n").splitlines(), f"LOG: {log_path}"],
         )
-    return output
+    if resolved.cache == "exact-tree":
+        dump_yaml(receipt_path, {**payload, "key": key, "status": "passed", "log": str(log_path)})
+    return [*output, f"CHECK: passed — {locator}", f"LOG: {log_path}"], False
 
 
 def _boundary_review(repo: Path, request: LandRequest, reach_lines: list[str]) -> list[str]:
@@ -586,6 +764,7 @@ def verify_and_land(repo: Path, request: LandRequest, *, update_ref: bool = True
         output.extend(_boundary_review(verify_dir, request, reach_lines))
 
         executed: set[str] = set()
+        reused = 0
         for line in verifier_lines:
             if line.startswith("REVIEW: "):
                 decision = line.split(" ", 2)[1]
@@ -599,13 +778,19 @@ def verify_and_land(repo: Path, request: LandRequest, *, update_ref: bool = True
             elif line.startswith("VERIFY: "):
                 locator = line.split(" ", 2)[2]
                 if locator not in executed:
-                    output.extend(_run_locator(verify_dir, locator))
+                    check_lines, cache_hit = _run_locator(verify_dir, locator, candidate)
+                    output.extend(check_lines)
+                    reused += int(cache_hit)
                     executed.add(locator)
         for locator in request.checks:
             if locator not in executed:
-                output.extend(_run_locator(verify_dir, locator))
+                check_lines, cache_hit = _run_locator(verify_dir, locator, candidate)
+                output.extend(check_lines)
+                reused += int(cache_hit)
                 executed.add(locator)
         output.append(f"CHECKS: {len(executed)} unique")
+        if reused:
+            output.append(f"CHECK-CACHE: {reused} reused")
         _coordinate_verify(verify_dir, request, candidate)
 
         if not update_ref:
@@ -652,8 +837,6 @@ def verify_and_land(repo: Path, request: LandRequest, *, update_ref: bool = True
     finally:
         if added:
             git.run(["worktree", "remove", "--force", str(verify_dir)], cwd=repo, check=False)
-        import shutil
-
         shutil.rmtree(temporary, ignore_errors=True)
 
 
@@ -695,8 +878,6 @@ def direct_edit(repo: Path, subject: str, unit: str, checks: Iterable[str], targ
             raise Blocked("Invariant: direct edit has no derived path scope; use normal work-branch landing")
     finally:
         git.run(["worktree", "remove", "--force", str(verify_dir)], cwd=repo, check=False)
-        import shutil
-
         shutil.rmtree(temporary, ignore_errors=True)
     request = LandRequest(
         mode="staged",

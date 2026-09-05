@@ -143,6 +143,7 @@ audit_tree=$(printf '%s\n' "$frame" | sed -n 's/^TREE: //p')
 cat >"$fixture/.invariant/audits/ui-boundary.yml" <<EOF
 version: 1
 id: ui-boundary
+created_at: '2026-09-05T00:00:00Z'
 ground: $audit_ground
 tree: $audit_tree
 mode: scope

@@ -41,7 +41,7 @@ grep -q '^## Invariant lifecycle$' "$defaults/AGENTS.md" || die "Codex workflow 
 grep -q '^# Existing Claude instructions$' "$defaults/CLAUDE.md" || die "Claude setup replaced existing instructions"
 grep -q '^@AGENTS.md$' "$defaults/CLAUDE.md" || die "Claude does not import the shared workflow"
 printf '%s\n' "$out" | grep -q '^Recommended next step$' || die "init omitted the governance recommendation"
-printf '%s\n' "$out" | grep -q 'Run the initial governance workflow with Invariant\.' || die "init omitted the governance prompt"
+printf '%s\n' "$out" | grep -q "invariant initial-governance begin initial-governance" || die "init omitted the governance command"
 printf '%s\n' "$out" | grep -q "Intent shaping.*Model's own understanding" || die "default intent shaping was not explained"
 [ ! -e "$defaults/.invariant/DOMAINS.yml" ] || die "init manufactured empty domains"
 [ ! -e "$defaults/.invariant/CONTRACTS.yml" ] || die "init manufactured empty contracts"

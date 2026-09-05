@@ -40,10 +40,15 @@ class Boundary:
     def from_value(cls, value: Any) -> "Boundary":
         if not isinstance(value, dict):
             raise UsageError("assessment boundary must be a mapping")
+        unknown = sorted(set(value) - {"disposition"})
+        if unknown:
+            raise UsageError(f"assessment boundary has unknown field '{unknown[0]}'")
         disposition = value.get("disposition")
         if not isinstance(disposition, str):
             raise UsageError("assessment boundary requires a disposition")
-        if disposition not in {"no-record", "recorded"} and not disposition.startswith("audit:"):
+        if disposition not in {"no-record", "recorded"} and not (
+            disposition.startswith("audit:") and _valid_id(disposition.removeprefix("audit:"))
+        ):
             raise UsageError("assessment has an invalid boundary disposition")
         return cls(disposition)
 
@@ -59,7 +64,12 @@ class OutcomeAssessment:
     def from_value(cls, value: Any, index: int) -> "OutcomeAssessment":
         if not isinstance(value, dict):
             raise UsageError(f"outcome_assessment[{index}] must be a mapping")
-        reference = value.get("satisfies") or value.get("id")
+        unknown = sorted(set(value) - {"satisfies", "disposition", "prose", "evidence"})
+        if unknown:
+            raise UsageError(
+                f"outcome_assessment[{index}] has unknown field '{unknown[0]}'"
+            )
+        reference = value.get("satisfies")
         disposition = value.get("disposition")
         prose = value.get("prose")
         if not all(isinstance(item, str) and item.strip() for item in (reference, disposition, prose)):
@@ -94,8 +104,39 @@ class Assessment:
         raw = _load_yaml(path)
         if not isinstance(raw, dict):
             raise UsageError("assessment must be a YAML mapping")
+        allowed = {
+            "version",
+            "goal_digest",
+            "paths",
+            "interfaces",
+            "domains",
+            "boundary",
+            "governance",
+            "architecture_reviews",
+            "checks",
+            "allow_open",
+            "outcome_assessment",
+            "prose",
+            "candidate_tree",
+        }
+        unknown = sorted(set(raw) - allowed)
+        if unknown:
+            raise UsageError(f"assessment has unknown field '{unknown[0]}'")
         if raw.get("version") != 1:
             raise UsageError("assessment must declare version: 1")
+        required = {
+            "goal_digest",
+            "paths",
+            "interfaces",
+            "domains",
+            "boundary",
+            "governance",
+            "architecture_reviews",
+            "checks",
+        }
+        missing = sorted(required - set(raw))
+        if missing:
+            raise UsageError(f"assessment is missing required field '{missing[0]}'")
         goal_digest = raw.get("goal_digest")
         if not isinstance(goal_digest, str) or not goal_digest:
             raise UsageError("assessment requires goal_digest")
@@ -112,6 +153,9 @@ class Assessment:
         candidate_tree = raw.get("candidate_tree")
         if candidate_tree is not None and (not isinstance(candidate_tree, str) or not candidate_tree):
             raise UsageError("assessment candidate_tree must be a non-empty Git tree id")
+        allow_open = raw.get("allow_open", False)
+        if not isinstance(allow_open, bool):
+            raise UsageError("assessment allow_open must be true or false")
         return cls(
             version=1,
             goal_digest=goal_digest,
@@ -124,7 +168,7 @@ class Assessment:
                 raw.get("architecture_reviews"), "assessment architecture_reviews"
             ),
             checks=string_list(raw.get("checks"), "assessment checks"),
-            allow_open=raw.get("allow_open", False) is True,
+            allow_open=allow_open,
             outcomes=outcomes,
             prose=prose,
             candidate_tree=candidate_tree,

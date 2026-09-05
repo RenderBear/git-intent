@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -155,9 +156,20 @@ def save(
     except ValueError:
         pass
     ground, tree = snapshot(repo, exclude=excluded)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    created_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    timestamp = now.strftime("%Y%m%dT%H%M%SZ")
+    stamped_identifier = f"{identifier}--{timestamp}"
+    suffix = 2
+    destination = repo / ".invariant" / "audits" / f"{stamped_identifier}.yml"
+    while destination.exists():
+        stamped_identifier = f"{identifier}--{timestamp}-{suffix}"
+        destination = repo / ".invariant" / "audits" / f"{stamped_identifier}.yml"
+        suffix += 1
     value: dict[str, Any] = {
         "version": 1,
-        "id": identifier,
+        "id": stamped_identifier,
+        "created_at": created_at,
         "ground": ground,
         "tree": tree,
         "mode": mode,
@@ -167,9 +179,6 @@ def save(
     if domains:
         value["domains"] = sorted(set(domains))
     value["findings"] = raw["findings"]
-    destination = repo / ".invariant" / "audits" / f"{identifier}.yml"
-    if destination.exists():
-        raise InvariantError(f"Invariant: audit '{identifier}' already exists", code="audit_exists")
     domain_ids = [str(row.get("id")) for row in governance.domains(repo) if row.get("id")]
     failures = state.validate_audit(repo, destination, value, domain_ids)
     if failures:
@@ -190,7 +199,8 @@ def save(
             "adopt all ready findings, adopt selected findings, or defer adoption"
         )
     return [
-        f"AUDIT: {identifier}",
+        f"AUDIT: {stamped_identifier}",
+        f"CREATED-AT: {created_at}",
         f"AUTHORITY: {authority}",
         f"GROUND: {ground}",
         f"TREE: {tree}",

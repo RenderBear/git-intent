@@ -61,14 +61,18 @@ findings:
     disposition: discovery-only
 EOF
 out=$(cd "$fixture" && "$cli" evidence audit save ocr --mode scope --path src/ocr --input "$findings")
-printf '%s\n' "$out" | grep -q '^SAVED: .invariant/audits/ocr.yml$' || die "audit was not saved under audits"
+audit_id=$(printf '%s\n' "$out" | sed -n 's/^AUDIT: //p')
+audit_path="$fixture/.invariant/audits/$audit_id.yml"
+printf '%s\n' "$out" | grep -q "^SAVED: .invariant/audits/$audit_id.yml$" || die "timestamped audit was not saved under audits"
+printf '%s\n' "$out" | grep -Eq '^CREATED-AT: [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' || die "audit timestamp was not reported"
 printf '%s\n' "$out" | grep -q '^NEXT: adopt every ready finding' || die "agent authority did not continue toward adoption"
-grep -q "^ground: $ground$" "$fixture/.invariant/audits/ocr.yml" || die "saved audit ground was not stamped"
-grep -q "^tree: $tree$" "$fixture/.invariant/audits/ocr.yml" || die "saved audit tree was not stamped"
+grep -q '^created_at: ' "$audit_path" || die "saved audit timestamp was not stamped"
+grep -q "^ground: $ground$" "$audit_path" || die "saved audit ground was not stamped"
+grep -q "^tree: $tree$" "$audit_path" || die "saved audit tree was not stamped"
 (cd "$fixture" && "$cli" state validate >/dev/null) || die "tracked audit schema is invalid"
-git -C "$fixture" add .invariant/audits/ocr.yml
+git -C "$fixture" add ".invariant/audits/$audit_id.yml"
 git -C "$fixture" commit -qm "record audit"
-out=$(cd "$fixture" && "$cli" evidence fresh ocr)
+out=$(cd "$fixture" && "$cli" evidence fresh "$audit_id")
 printf '%s\n' "$out" | grep -q '^FRESH:' || die "audit commit made its own evidence stale"
 ok "completed audits are stamped, validated, saved, and remain non-authoritative"
 
@@ -80,10 +84,11 @@ version: 1
 findings: []
 EOF
 out=$(cd "$fixture" && "$cli" evidence audit save human-review --mode scope --path ui --input "$findings")
+human_audit_id=$(printf '%s\n' "$out" | sed -n 's/^AUDIT: //p')
 printf '%s\n' "$out" | grep -q '^AUTHORITY: human$' || die "saved audit omitted human authority"
 printf '%s\n' "$out" | grep -q 'adopt selected findings, or defer adoption$' ||
   die "human audit did not offer clear investigation and adoption choices"
-git -C "$fixture" add .invariant/audits/human-review.yml
+git -C "$fixture" add ".invariant/audits/$human_audit_id.yml"
 git -C "$fixture" commit -qm "save human-review audit"
 ok "human authority receives review choices after the audit is safely persisted"
 rm -f "$findings"
@@ -96,6 +101,7 @@ captured_tree=$(printf '%s\n' "$frame" | sed -n 's/^TREE: //p')
 cat >"$fixture/.invariant/audits/captured.yml" <<EOF
 version: 1
 id: captured
+created_at: '2026-09-05T00:00:00Z'
 ground: $captured_ground
 tree: $captured_tree
 mode: scope
@@ -110,13 +116,13 @@ ok "freshness compares the exact audited tree, not a wall clock or only its grou
 
 printf 'changed\n' >>"$fixture/ui/view.txt"
 git -C "$fixture" commit -qam "unrelated UI change"
-out=$(cd "$fixture" && "$cli" evidence fresh ocr)
+out=$(cd "$fixture" && "$cli" evidence fresh "$audit_id")
 printf '%s\n' "$out" | grep -q '^FRESH:' || die "unrelated change made audit stale"
 ok "unrelated descendants preserve audit freshness"
 
 printf 'changed\n' >>"$fixture/docs/architecture.md"
 git -C "$fixture" commit -qam "change audited evidence"
-if out=$(cd "$fixture" && "$cli" evidence fresh ocr 2>&1); then die "intersecting evidence change stayed fresh"; fi
+if out=$(cd "$fixture" && "$cli" evidence fresh "$audit_id" 2>&1); then die "intersecting evidence change stayed fresh"; fi
 printf '%s\n' "$out" | grep -q '^STALE: changed evidence docs/architecture.md$' || die "stale evidence is not identified"
 ok "intersecting descendant change makes audit stale"
 

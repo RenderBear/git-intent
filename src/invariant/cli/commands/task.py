@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import argparse
 
+import yaml
+
+from invariant.cli.output import CommandResult
+from invariant.errors import UsageError
 from invariant.lifecycle import tasks
-from invariant.mechanics import git
+from invariant.mechanics import git, receipts
+from invariant.mechanics.documents import dump_yaml
+from invariant.semantics import schemas
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -43,7 +49,10 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
 
     finish = commands.add_parser("finish")
     finish.add_argument("task_id")
-    finish.add_argument("--assessment", required=True)
+    finish.add_argument(
+        "--assessment",
+        help="assessment file (defaults to the Git-local draft from task assessment prepare)",
+    )
     finish.add_argument("--subject")
     finish.add_argument("--check", action="append", default=[])
     finish.set_defaults(_handler=_finish, _command="task.finish")
@@ -60,6 +69,25 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     guide = commands.add_parser("guidance")
     guide.add_argument("task_id")
     guide.set_defaults(_handler=_guidance, _command="task.guidance")
+
+    assessment = commands.add_parser("assessment", help="Inspect or prepare task assessments")
+    assessments = assessment.add_subparsers(dest="assessment_command", required=True)
+    assessment_schema = assessments.add_parser("schema", help="Print the version-1 assessment schema")
+    assessment_schema.set_defaults(
+        _handler=_assessment_schema, _command="task.assessment.schema"
+    )
+    assessment_example = assessments.add_parser("example", help="Print a complete assessment example")
+    assessment_example.set_defaults(
+        _handler=_assessment_example, _command="task.assessment.example"
+    )
+    assessment_prepare = assessments.add_parser(
+        "prepare", help="Generate a candidate-bound assessment draft and missing requirements"
+    )
+    assessment_prepare.add_argument("task_id")
+    assessment_prepare.add_argument("--output")
+    assessment_prepare.set_defaults(
+        _handler=_assessment_prepare, _command="task.assessment.prepare"
+    )
 
 
 def _repo():
@@ -99,10 +127,18 @@ def _check(args: argparse.Namespace) -> list[str]:
 
 
 def _finish(args: argparse.Namespace) -> list[str]:
+    repo = _repo()
+    prepared = receipts.task_root(repo, args.task_id) / "prepared-assessment.yml"
+    if not args.assessment and not prepared.is_file():
+        raise UsageError(
+            "Invariant: no prepared assessment exists; run "
+            f"'invariant task assessment prepare {args.task_id}' first"
+        )
+    assessment = args.assessment or str(prepared)
     return tasks.finish(
-        _repo(),
+        repo,
         args.task_id,
-        assessment_path=args.assessment,
+        assessment_path=assessment,
         subject=args.subject,
         checks=args.check,
     )
@@ -118,3 +154,41 @@ def _invalidate(args: argparse.Namespace) -> list[str]:
 
 def _guidance(args: argparse.Namespace) -> list[str]:
     return tasks.task_guidance(_repo(), args.task_id)
+
+
+def _yaml_lines(value: object) -> list[str]:
+    return yaml.safe_dump(value, sort_keys=False, allow_unicode=True).rstrip().splitlines()
+
+
+def _assessment_schema(_: argparse.Namespace) -> CommandResult:
+    value = schemas.assessment_schema()
+    return CommandResult(_yaml_lines(value), {"schema": value})
+
+
+def _assessment_example(_: argparse.Namespace) -> CommandResult:
+    value = schemas.assessment_example()
+    return CommandResult(_yaml_lines(value), {"example": value})
+
+
+def _assessment_prepare(args: argparse.Namespace) -> CommandResult:
+    repo = _repo()
+    assessment, analysis = tasks.prepare_assessment(repo, args.task_id)
+    destination = (
+        (repo / args.output).resolve()
+        if args.output
+        else receipts.task_root(repo, args.task_id) / "prepared-assessment.yml"
+    )
+    dump_yaml(destination, assessment)
+    try:
+        display_path: object = destination.relative_to(repo)
+    except ValueError:
+        display_path = destination
+    lines = [f"ASSESSMENT: prepared {args.task_id}", f"SAVED: {display_path}"]
+    if analysis["required"]:
+        lines.append(f"REQUIRED: {len(analysis['required'])} semantic completion(s)")
+    else:
+        lines.append("READY: assessment has no unresolved generated requirements")
+    return CommandResult(
+        lines,
+        {"assessment": assessment, "analysis": analysis, "path": str(destination)},
+    )

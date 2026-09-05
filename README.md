@@ -1,8 +1,13 @@
-# Invariant
+# Invariant: Durable architectural intent for agentic work
 
-Invariant discovers and maintains durable architectural intent across long-running agentic work.
+Invariant is a repository-native control plane for coding agents and harnesses, delivered as a
+standalone Python CLI. It governs durable intent and verified lifecycle transitions without hosting
+or executing the model loop. Humans provide intent, resolve escalated conflicts or ambiguity, and
+may control lifecycle transitions; agents handle repository internals. Invariant advances the
+integration branch only after exact-candidate verification succeeds and keeps remote publication
+disabled by default.
 
-It connects four concerns that otherwise drift apart:
+It connects four critical axes for agentic work:
 
 - **Governed autonomy** — stable architecture and executable contracts let agents act independently
   without weakening cross-domain promises.
@@ -18,12 +23,7 @@ remain after the work ends; plans, claims, and leases do not.
 
 ![A Git-grounded lifecycle carries a user goal through coordination, execution, verification, conflict resolution by an agent or human, and local landing. A durable semantic layer maps domains to architecture files and contracts to contract files.](.github/assets/lifecycle.svg)
 
-Invariant is a repository-native control plane for coding agents and harnesses, delivered as a
-standalone Python CLI. It governs durable intent and verified lifecycle transitions without hosting
-or executing the model loop. Humans provide intent, resolve escalated conflicts or ambiguity, and
-may control lifecycle transitions; agents handle repository internals. Invariant advances the
-integration branch only after exact-candidate verification succeeds and keeps remote publication
-disabled by default.
+
 
 The complete design is in [SPEC.md](SPEC.md).
 
@@ -111,10 +111,27 @@ protocol. Detailed arguments such as paths, domains, interfaces, governance refe
 candidate assessments are integration fields for those callers; they are not concepts a human is
 expected to memorize or enter during normal development.
 
-Humans may use the small operational surface directly—for example, `invariant config show`,
-`invariant task status <task-id>`, or `invariant task continue <task-id> --apply`. Harnesses should
-use `--format json` for the deeper command contract. Running `invariant` alone does not start an
-assistant; without a coding harness, it remains a deterministic repository and automation tool.
+Humans may use the small operational surface directly—for example, `invariant status`,
+`invariant status <task-id>`, or `invariant task continue <task-id> --apply`. Harnesses should use
+compact `--format json` for the deeper command contract; add `--verbose` only when the duplicate
+text rendering is useful. Running `invariant` alone does not start an assistant; without a coding
+harness, it remains a deterministic repository and automation tool.
+
+The protocol is self-describing:
+
+```bash
+invariant evidence audit schema
+invariant evidence audit example
+invariant task assessment schema
+invariant task assessment example
+invariant task assessment prepare <task-id>
+```
+
+Assessment preparation derives the exact candidate paths, domains established by the candidate,
+governance references, prospective tree, affected architecture reviews, and checks that will run.
+It reports unresolved semantic requirements together instead of revealing them one validation error
+at a time. The editable draft is stored in Git-local task runtime, so it does not dirty the candidate;
+after completing it, `invariant task finish <task-id>` uses that draft by default.
 
 ## Configure Invariant
 
@@ -161,6 +178,27 @@ invariant config set push_remote on
 invariant config set lifecycle.intent_expansion on
 ```
 
+### Configure project-aware verification
+
+Python `test:` locators use the nearest `pyproject.toml` and tracked `uv.lock` automatically. More
+complex repositories can register named runners:
+
+```yaml
+verification:
+  runners:
+    backend:
+      command: [uv, run, pytest, "{target}"]
+      cwd: backend
+      cache: exact-tree
+      timeout: 300
+```
+
+A verifier such as `runner:backend#tests/test_contract.py` then executes in `backend`. Successful
+output is retained under Git-local Invariant runtime and omitted from normal responses. Exact-tree
+receipts let `task finish` reuse a matching prior candidate verification; reach, state validation,
+the prospective tree, and the integration compare-and-swap are still recomputed live. Set a runner's
+cache to `exact-tree` only when that reuse is sound; named runners default to `never`.
+
 ## Establish architectural intent
 
 Invariant does not require a complete model up front: start with an initial governance run, then let
@@ -173,12 +211,7 @@ responsibilities, boundaries, dependencies, and executable promises and saves th
 under `.invariant/audits/`. With `authority: agent`, it continues automatically through adoption and
 managed landing. With `authority: human`, it presents a concise findings summary and lets the human
 investigate further, adopt all ready findings, adopt selected findings, or defer. `execution`
-independently controls branch and landing pauses.
-
-The agent-facing audit handoff is explicit: `invariant evidence audit full` frames the investigation,
-and `invariant evidence audit save <id> --mode full --input <findings.yml>` stamps the exact Git
-ground and tree, validates the findings, and persists the audit. The input file contains only
-`version: 1` and `findings`; causal fields are owned by the CLI.
+independently controls branch and landing pauses. The agent-facing audit handoff is explicit. Invariant stamps the exact Git  ground, tree, and UTC creation time, validates the findings, and persists a timestamped audit.
 
 ### Continue with progressive discovery
 
@@ -229,24 +262,3 @@ uncertainty
   → intentional resolution
   → architecture, contract, code, tests, documentation, follow-up, or no action
 ```
-
-## Contributing to Invariant
-
-Set up the source tree:
-
-```bash
-uv sync
-uv run invariant --version
-```
-
-Run the complete verification suite:
-
-```bash
-for test_file in tests/test-*.sh; do sh "$test_file" || exit; done
-uv run pytest
-uv build --no-sources
-```
-
-The package implementation lives under `src/invariant/`. Repository-local `intent-*` shell scripts
-are deprecated compatibility adapters into that package and are not included in the installed
-wheel.

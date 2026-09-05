@@ -18,6 +18,7 @@ def _configuration(push_remote: str, branch: str = "main") -> config.Config:
         branch_source="test",
         unborn=False,
         lifecycle=config.LifecycleOptions(),
+        verification=config.VerificationOptions(),
     )
 
 

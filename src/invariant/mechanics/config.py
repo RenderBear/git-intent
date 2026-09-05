@@ -32,6 +32,23 @@ class LifecycleOptions:
 
 
 @dataclass(frozen=True)
+class VerifierRunner:
+    name: str
+    command: tuple[str, ...]
+    cwd: str = "."
+    cache: str = "never"
+    timeout: int = 0
+
+
+@dataclass(frozen=True)
+class VerificationOptions:
+    runners: tuple[VerifierRunner, ...] = ()
+
+    def named(self, name: str) -> VerifierRunner | None:
+        return next((runner for runner in self.runners if runner.name == name), None)
+
+
+@dataclass(frozen=True)
 class Config:
     coding_agents: tuple[str, ...]
     authority: str
@@ -43,6 +60,7 @@ class Config:
     branch_source: str
     unborn: bool
     lifecycle: LifecycleOptions
+    verification: VerificationOptions
 
 
 def _current(repo: Path) -> tuple[str, str]:
@@ -76,12 +94,8 @@ def _from_raw(
         "integration_branch",
         "push_remote",
         "lifecycle",
+        "verification",
     }
-    if "resolution" in raw:
-        raise InvariantError(
-            "Invariant: .invariant/config.yml uses removed field 'resolution'; "
-            "replace resolution: auto with authority: agent, or resolution: assisted with authority: human"
-        )
     unknown = sorted(set(raw) - allowed)
     if unknown:
         raise InvariantError(f"Invariant: .invariant/config.yml has unknown field '{unknown[0]}'")
@@ -126,6 +140,59 @@ def _from_raw(
     lifecycle = LifecycleOptions(
         lifecycle_raw.get("intent_expansion", False), lifecycle_raw.get("outcome_review", False)
     )
+    verification_raw = raw.get("verification", {})
+    if not isinstance(verification_raw, dict):
+        raise InvariantError("Invariant: .invariant/config.yml verification must be a mapping")
+    verification_unknown = sorted(set(verification_raw) - {"runners"})
+    if verification_unknown:
+        raise InvariantError(
+            f"Invariant: .invariant/config.yml has unknown verification field '{verification_unknown[0]}'"
+        )
+    runners_raw = verification_raw.get("runners", {})
+    if not isinstance(runners_raw, dict):
+        raise InvariantError("Invariant: verification.runners must be a mapping")
+    runners: list[VerifierRunner] = []
+    for name, runner_raw in sorted(runners_raw.items()):
+        if not isinstance(name, str) or not git.valid_id(name):
+            raise InvariantError(f"Invariant: invalid verifier runner name '{name}'")
+        if not isinstance(runner_raw, dict):
+            raise InvariantError(f"Invariant: verification runner '{name}' must be a mapping")
+        runner_unknown = sorted(set(runner_raw) - {"command", "cwd", "cache", "timeout"})
+        if runner_unknown:
+            raise InvariantError(
+                f"Invariant: verification runner '{name}' has unknown field '{runner_unknown[0]}'"
+            )
+        command = runner_raw.get("command")
+        if (
+            not isinstance(command, list)
+            or not command
+            or any(not isinstance(item, str) or not item for item in command)
+        ):
+            raise InvariantError(
+                f"Invariant: verification runner '{name}' command must be a non-empty string list"
+            )
+        cwd = runner_raw.get("cwd", ".")
+        if (
+            not isinstance(cwd, str)
+            or not cwd
+            or Path(cwd).is_absolute()
+            or ".." in Path(cwd).parts
+        ):
+            raise InvariantError(
+                f"Invariant: verification runner '{name}' cwd must stay inside the repository"
+            )
+        cache = runner_raw.get("cache", "never")
+        if cache not in {"never", "exact-tree"}:
+            raise InvariantError(
+                f"Invariant: verification runner '{name}' cache must be never or exact-tree"
+            )
+        timeout = runner_raw.get("timeout", 0)
+        if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout < 0:
+            raise InvariantError(
+                f"Invariant: verification runner '{name}' timeout must be a non-negative integer"
+            )
+        runners.append(VerifierRunner(name, tuple(command), cwd, cache, timeout))
+    verification = VerificationOptions(tuple(runners))
     configured = raw.get("integration_branch", "auto")
     if not isinstance(configured, str) or not configured:
         raise InvariantError("Invariant: integration_branch must be auto or a non-empty branch name")
@@ -148,6 +215,7 @@ def _from_raw(
         source,
         branch_source,
         lifecycle,
+        verification,
     )
 
 
@@ -166,6 +234,7 @@ def resolve(repo: Path) -> Config:
             "default",
             branch_source,
             LifecycleOptions(),
+            VerificationOptions(),
         )
     if not config_path.is_file():
         raise InvariantError("Invariant: .invariant/config.yml is not a regular file")
@@ -196,6 +265,7 @@ def resolve_at(repo: Path, ref: str, integration_branch: str) -> Config:
             "default",
             "accepted",
             LifecycleOptions(),
+            VerificationOptions(),
         )
     try:
         raw = yaml.safe_load(result.stdout)
@@ -214,7 +284,7 @@ def resolve_at(repo: Path, ref: str, integration_branch: str) -> Config:
 
 
 def _document(config: Config) -> dict[str, Any]:
-    return {
+    document: dict[str, Any] = {
         "version": 1,
         "coding_agents": list(config.coding_agents),
         "authority": config.authority,
@@ -226,6 +296,19 @@ def _document(config: Config) -> dict[str, Any]:
             "outcome_review": config.lifecycle.outcome_review,
         },
     }
+    if config.verification.runners:
+        document["verification"] = {
+            "runners": {
+                runner.name: {
+                    "command": list(runner.command),
+                    "cwd": runner.cwd,
+                    "cache": runner.cache,
+                    "timeout": runner.timeout,
+                }
+                for runner in config.verification.runners
+            }
+        }
+    return document
 
 
 def initialize(
@@ -339,6 +422,7 @@ def _finish(
     source: str,
     branch_source: str,
     lifecycle: LifecycleOptions,
+    verification: VerificationOptions,
 ) -> Config:
     unborn = not git.branch_exists(repo, branch)
     if unborn:
@@ -362,6 +446,7 @@ def _finish(
         branch_source,
         unborn,
         lifecycle,
+        verification,
     )
 
 
@@ -381,4 +466,8 @@ def lines(config: Config) -> list[str]:
     ]
     if config.unborn:
         output.append("integration_branch_unborn: true")
+    for runner in config.verification.runners:
+        output.append(
+            f"verification_runner: {runner.name} cwd={runner.cwd} cache={runner.cache}"
+        )
     return output

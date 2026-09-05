@@ -75,8 +75,8 @@ if out=$(cd "$fixture" && "$cli" config show 2>&1); then
   echo "not ok - removed resolution field was accepted"
   exit 1
 fi
-printf '%s\n' "$out" | grep -q 'replace resolution: auto with authority: agent' || {
-  echo "not ok - removed resolution field lacked migration guidance"
+printf '%s\n' "$out" | grep -q "unknown field 'resolution'" || {
+  echo "not ok - removed resolution field was not rejected as unknown"
   exit 1
 }
 

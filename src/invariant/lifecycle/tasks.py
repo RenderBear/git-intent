@@ -492,6 +492,201 @@ def finish(
     return [*output, f"TASK: {task}", "STATUS: completed"]
 
 
+def prepare_assessment(repo: Path, task: str) -> tuple[dict[str, object], dict[str, object]]:
+    """Compile a candidate-bound assessment draft and its remaining semantic requirements."""
+    receipt = receipts.load(repo, task)
+    lifecycle = receipt.get("lifecycle") if isinstance(receipt.get("lifecycle"), dict) else {}
+    stage = str(lifecycle.get("stage") or "")
+    if stage not in {"implementing", "implementing-unborn", "awaiting-outcome-review"}:
+        raise Blocked(f"Invariant: task '{task}' has no candidate to assess (stage '{stage}')")
+    active_stage = (
+        "implementing-unborn"
+        if str(receipt.get("integration_head")) == "unborn"
+        else "implementing"
+    )
+    branch = str(lifecycle.get("branch") or "")
+    target = str(receipt.get("integration_target") or "")
+    base = str(receipt.get("integration_head") or "")
+    _, paths = _actual_paths(repo, active_stage, base, branch)
+    if not paths:
+        raise Blocked("Invariant: task candidate contains no changes")
+    scope = receipt.get("scope") if isinstance(receipt.get("scope"), dict) else {}
+    interfaces = sorted({str(item) for item in scope.get("interfaces", [])})
+    selected_domains = {str(item) for item in scope.get("domains", [])}
+
+    def changed_records(
+        relative: str, current: list[dict[str, object]], previous: list[dict[str, object]]
+    ) -> list[dict[str, object]]:
+        if relative not in paths:
+            return []
+        before = {str(row.get("id")): row for row in previous if row.get("id")}
+        return [row for row in current if row.get("id") and before.get(str(row["id"])) != row]
+
+    previous_ref = None if active_stage == "implementing-unborn" else base
+    changed_domains = changed_records(
+        ".invariant/DOMAINS.yml",
+        governance.domains(repo),
+        governance.domains(repo, previous_ref) if previous_ref else [],
+    )
+    changed_contracts = changed_records(
+        ".invariant/CONTRACTS.yml",
+        governance.contracts(repo),
+        governance.contracts(repo, previous_ref) if previous_ref else [],
+    )
+    changed_constraints = changed_records(
+        ".invariant/CONSTRAINTS.yml",
+        governance.constraints(repo),
+        governance.constraints(repo, previous_ref) if previous_ref else [],
+    )
+    selected_domains.update(str(row["id"]) for row in changed_domains)
+    for row in changed_contracts:
+        selected_domains.update(governance.refs(row.get("between")))
+    for row in changed_constraints:
+        selected_domains.update(governance.refs(row.get("applies_to")))
+    domains = sorted(selected_domains)
+    reach_lines = governance.reach(
+        repo,
+        paths=paths,
+        base=previous_ref,
+        root_mode=active_stage == "implementing-unborn",
+        domains_selected=domains,
+        interfaces=interfaces,
+    )
+    reach = next(
+        (line.removeprefix("REACH: ") for line in reach_lines if line.startswith("REACH: ")),
+        "local",
+    )
+    verifier_lines = governance.verifiers(
+        repo,
+        paths=paths,
+        base=previous_ref,
+        root_mode=active_stage == "implementing-unborn",
+        domains_selected=domains,
+        interfaces=interfaces,
+    )
+    reviews = sorted(
+        {
+            line.split(" ", 2)[1]
+            for line in verifier_lines
+            if line.startswith("REVIEW: ")
+        }
+    )
+    changed_architecture = [
+        reference
+        for reference in reviews
+        if reference.startswith("architecture:")
+        and reference.removeprefix("architecture:").split("#", 1)[0] in paths
+    ]
+    will_run = sorted(
+        {
+            line.split(" ", 2)[2]
+            for line in verifier_lines
+            if line.startswith("VERIFY: ")
+        }
+    )
+    governance_refs = [
+        *[f"domain:{row['id']}" for row in changed_domains],
+        *[f"contract:{row['id']}" for row in changed_contracts],
+        *[f"constraint:{row['id']}" for row in changed_constraints],
+        *changed_architecture,
+    ]
+    durable_registry_changed = bool(
+        {".invariant/DOMAINS.yml", ".invariant/CONTRACTS.yml", ".invariant/CONSTRAINTS.yml"}
+        .intersection(paths)
+    )
+    intent = receipt.get("intent") if isinstance(receipt.get("intent"), dict) else {}
+    boundary = str(intent.get("boundary") or "unresolved")
+    if boundary == "unresolved":
+        if governance_refs or durable_registry_changed:
+            boundary = "recorded"
+        elif reach in {"local", "bounded"}:
+            boundary = "no-record"
+    resolved = _target_config(repo, target)
+    accepted_authority = (
+        resolved.authority
+        if base == "unborn"
+        else config.resolve_at(repo, base, target).authority
+    )
+    agent_authority = resolved.authority == "agent" and accepted_authority == "agent"
+    allow_open = reach in {"open", "gated"} and agent_authority and boundary != "unresolved"
+    candidate_tree = landing.prospective_tree(
+        repo, target, None if active_stage == "implementing-unborn" else branch
+    )
+    assessment: dict[str, object] = {
+        "version": 1,
+        "goal_digest": str(receipt.get("goal_digest") or ""),
+        "paths": paths,
+        "interfaces": interfaces,
+        "domains": domains,
+        "boundary": {"disposition": boundary},
+        "governance": sorted(governance_refs),
+        "architecture_reviews": [],
+        "checks": [],
+        "allow_open": allow_open,
+    }
+    _, outcome_review = _options(receipt)
+    if outcome_review:
+        assessment["candidate_tree"] = candidate_tree
+        nodes = receipt.get("intent_nodes") if isinstance(receipt.get("intent_nodes"), dict) else {}
+        assessment["outcome_assessment"] = [
+            {
+                "satisfies": reference,
+                "disposition": "unresolved",
+                "prose": "Review this acceptance condition against the exact candidate tree.",
+                "evidence": [],
+            }
+            for reference in nodes.get("acceptance", [])
+        ]
+    required: list[dict[str, object]] = []
+    if boundary == "unresolved":
+        required.append(
+            {
+                "field": "boundary.disposition",
+                "reason": "open reach needs a durable-meaning decision",
+                "allowed": ["no-record", "recorded", "audit:<id>"],
+            }
+        )
+    if boundary == "recorded" and not governance_refs:
+        required.append(
+            {
+                "field": "governance",
+                "reason": "the candidate changes durable governance but no surviving candidate record can be inferred",
+                "allowed": ["domain:<id>", "contract:<id>", "constraint:<id>", "architecture:<path>#<anchor>"],
+            }
+        )
+    if reviews:
+        required.append(
+            {
+                "field": "architecture_reviews",
+                "reason": "review these affected decisions before copying their locators into the assessment",
+                "values": reviews,
+            }
+        )
+    if reach in {"open", "gated"} and not allow_open:
+        required.append(
+            {
+                "field": "allow_open",
+                "reason": "human semantic authority must approve this open or gated transition",
+                "value_after_approval": True,
+            }
+        )
+    analysis: dict[str, object] = {
+        "candidate_tree": candidate_tree,
+        "reach": reach,
+        "inferred": {
+            "paths": paths,
+            "interfaces": interfaces,
+            "domains": domains,
+            "governance": sorted(governance_refs),
+        },
+        "required": required,
+        "recommended_architecture_reviews": reviews,
+        "will_run": will_run,
+        "reach_records": reach_lines,
+    }
+    return assessment, analysis
+
+
 def continue_task(repo: Path, task: str, *, apply: bool = False) -> list[str]:
     receipt = receipts.load(repo, task)
     lifecycle = receipt.get("lifecycle") if isinstance(receipt.get("lifecycle"), dict) else {}

@@ -316,6 +316,17 @@ With agent authority, audit through adoption is one autonomous governance run. W
 the saved audit is summarized before the human chooses deeper investigation, adoption of all ready
 findings, adoption of selected findings, or deferral.
 
+Initial governance is exposed as one resumable session while preserving distinct audit, adoption,
+and verification phases. The managed branch is opened before audit persistence, eliminating an
+incidental audit-only commit between `audit save` and task creation. Under agent authority, saving
+the audit automatically selects its ready findings and advances the session to adoption.
+
+Project-aware verifier runners may be registered under `verification.runners`. Each runner declares
+a command template, repository-relative working directory, `exact-tree` or `never` cache policy,
+and optional timeout. `runner:<name>#<target>` invokes it. Python `test:` locators locate the nearest
+candidate `pyproject.toml` and use its tracked `uv.lock` when present. Automatic reuse is enabled
+only for that locked environment; named runners must opt into exact-tree reuse explicitly.
+
 Absence means both supported coding agents, `authority: agent`, `execution: auto`,
 `integration_branch: auto`, `push_remote: off`, and disabled optional lifecycle bookends. Automatic
 execution is the ergonomic default; it does not remove briefing, branch isolation, exact-tree
@@ -453,23 +464,31 @@ Initial command groups are:
 
 ```text
 invariant init [--defaults]
+invariant status [<task-id>]
+invariant initial-governance begin <task-id>
+invariant initial-governance audit-save <task-id> <label> --input <findings-file>
+invariant initial-governance adopt <task-id> <--all-ready|--finding <id>...>
+invariant initial-governance defer <task-id>
+invariant initial-governance status <task-id>
 invariant config show
 invariant config init
 invariant config set <key> <value>
 invariant task begin <task-id> --goal <text> [semantic scope...]
 invariant task status <task-id>
 invariant task check <task-id> [semantic scope...]
-invariant task finish <task-id> --assessment <file> [--check <locator>]...
+invariant task finish <task-id> [--assessment <file>] [--check <locator>]...
 invariant task continue <task-id> [--apply]
 invariant task invalidate <task-id>
 invariant task guidance <task-id>
+invariant task assessment <schema|example>
+invariant task assessment prepare <task-id> [--output <file>]
 invariant state validate
 invariant context map
 invariant context rows <domain>...
 invariant context digest [--at <commit>] <domain>...
 invariant context reach [--base <ref>] [--path <path>]...
                         [--interface <name>]... [--domain <id>]...
-invariant evidence audit <scope|full> ...
+invariant evidence audit <scope|full|schema|example> ...
 invariant evidence audit save <audit-id> --mode <scope|full> --input <findings-file> ...
 invariant evidence fresh <audit-or-discovery> [--at <ref>]
 invariant evidence discovery <capture|resolve> ... [--apply]
@@ -513,11 +532,16 @@ outcome_assessment:
 
 The assessment records the caller's semantic decisions. It is not accepted governance and need not
 be committed. The CLI validates references, completeness, and consistency with the candidate.
+`task assessment prepare` generates the causal fields and returns one typed object containing the
+draft, inferred values, remaining required decisions, recommended architecture reviews, and exact
+verifiers that will run. Schema and example commands expose the same source-of-truth shapes used by
+validation.
 
 ### 8.2 Structured output
 
 Every command supports `--format text|json`. Text is for direct use; JSON is the application
-integration contract.
+integration contract. JSON is compact by default and never duplicates its human rendering;
+`--verbose` adds that rendering explicitly for diagnostics.
 
 JSON uses one envelope:
 
@@ -546,6 +570,8 @@ Detailed distinctions belong in structured diagnostics rather than a growing exi
 ### 8.3 Output discipline
 
 - Standard output contains only the selected result format.
+- Successful verifier output is retained in ignored Git-local logs and summarized rather than
+  copied into normal responses. Failure responses include the relevant output and log path.
 - Standard error contains invocation or runtime diagnostics that prevented a valid result.
 - Read-only commands never mutate Git, `.invariant`, runtime state, or receipts.
 - State-changing commands identify every intended mutation before applying it and support a dry-run
@@ -619,8 +645,9 @@ same lifecycle with little or no semantic ceremony.
 An audit is tracked evidence over a declared commit and exact tree. The CLI can capture mechanical
 scope, validate evidence references, and check causal freshness. A semantic reviewer authors its
 findings and dispositions. `evidence audit save` accepts only a version marker and findings, stamps
-the audit ID, mode, ground, and tree, validates the complete record, and writes it under
-`.invariant/audits/` before any adoption decision.
+the audit label with a compact UTC timestamp, records the same event as RFC 3339 `created_at`, stamps
+the mode, ground, and tree, validates the complete record, and writes it under `.invariant/audits/`
+before any adoption decision. Time is descriptive only; freshness remains Git-causal.
 
 A discovery is a tracked non-authoritative change in repository understanding:
 
@@ -724,8 +751,12 @@ The mechanics digest covers only configuration, Git identity, governance selecti
 serialization, and receipt-compatibility code. Landing, coordination, presentation, and prose
 guidance do not evict the brief cache: they are recomputed or reloaded independently. Receipts do not
 hash skill packages. Skill loading and context compaction belong to the host. Verification evidence
-may be reused only for the exact tree, verification mechanics version, governance versions, and
-verifier identities that produced it; changing the candidate always invalidates that evidence.
+may be reused only for the exact tree and base, verification mechanics version, runner configuration,
+working directory, executable environment, and verifier identity that produced it; changing the
+candidate always invalidates that evidence. These receipts and their full logs live under the
+Git-local Invariant runtime. Reach, semantic reviews, candidate state, prospective-tree construction,
+and compare-and-swap target checks are always recomputed even when an expensive verifier result is
+reused. Volatile runners use `cache: never`.
 
 ## 14. Lifecycle profiles
 

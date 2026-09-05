@@ -186,8 +186,10 @@ printf '%s\n' "$json" | grep -q '"protocol":1' || die "JSON protocol version is 
 printf '%s\n' "$json" | grep -q '"command":"context.reach"' || die "JSON command identity is missing"
 printf '%s\n' "$json" | grep -q '"status":"ok"' || die "JSON success status is missing"
 printf '%s\n' "$json" | grep -q '"name":"TOPOLOGY","value":"area.src"' || die "JSON records are not structured"
-printf '%s\n' "$json" | grep -q '\\nREACH: bounded' || die "JSON result did not preserve mechanical output"
-ok "read-only commands expose one machine-readable envelope"
+if printf '%s\n' "$json" | grep -q '"output"'; then die "compact JSON duplicated the text rendering"; fi
+verbose_json=$(cd "$fixture" && "$cli" --format json --verbose context reach --path src/a.txt)
+printf '%s\n' "$verbose_json" | grep -q '\\nREACH: bounded' || die "verbose JSON omitted the requested text rendering"
+ok "read-only commands expose compact JSON with opt-in text rendering"
 
 mkdir -p "$fixture/.invariant"
 cat >"$fixture/.invariant/config.yml" <<'EOF'

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -71,20 +72,48 @@ def _surface(repo: Path, value: str, label: str) -> list[str]:
 
 
 def _verifier(repo: Path, value: str, label: str) -> list[str]:
+    def repository_path(path: str) -> tuple[Path, list[str]]:
+        relative = Path(path)
+        if not path or relative.is_absolute() or ".." in relative.parts:
+            return repo / relative, [f"{label} verifier '{path}' must stay inside the repository"]
+        candidate = repo / relative
+        try:
+            candidate.resolve().relative_to(repo.resolve())
+        except (OSError, ValueError):
+            return candidate, [f"{label} verifier '{path}' escapes the repository"]
+        return candidate, []
+
     if value.startswith("command:"):
         path = value.removeprefix("command:")
-        candidate = repo / path
+        candidate, failures = repository_path(path)
+        if failures:
+            return failures
         result = [] if candidate.is_file() else [f"{label} verifier '{path}' does not exist"]
         if candidate.is_file() and not candidate.stat().st_mode & 0o111:
             result.append(f"{label} command verifier '{path}' is not executable")
         return result
     if value.startswith("test:"):
         path = value.removeprefix("test:").split("::", 1)[0]
-        return [] if (repo / path).is_file() else [f"{label} verifier '{path}' does not exist"]
+        candidate, failures = repository_path(path)
+        if failures:
+            return failures
+        return [] if candidate.is_file() else [f"{label} verifier '{path}' does not exist"]
     if value.startswith("schema:"):
         path = value.removeprefix("schema:").split("#", 1)[0]
-        return [] if (repo / path).is_file() else [f"{label} verifier '{path}' does not exist"]
-    return [f"{label} verifier '{value}' must use command:, test:, or schema:"]
+        candidate, failures = repository_path(path)
+        if failures:
+            return failures
+        return [] if candidate.is_file() else [f"{label} verifier '{path}' does not exist"]
+    if value.startswith("runner:"):
+        runner, separator, target = value.removeprefix("runner:").partition("#")
+        if not separator or not git.valid_id(runner) or not target:
+            return [f"{label} verifier '{value}' must use runner:<name>#<target>"]
+        try:
+            registered = config.resolve(repo).verification.named(runner)
+        except InvariantError as exc:
+            return [f"{label} verifier '{value}' cannot resolve configuration: {exc.message}"]
+        return [] if registered else [f"{label} verifier runner '{runner}' is not registered"]
+    return [f"{label} verifier '{value}' must use command:, test:, schema:, or runner:"]
 
 
 def _evidence(repo: Path, value: str, label: str, at: str | None) -> list[str]:
@@ -114,6 +143,14 @@ def validate_audit(repo: Path, path: Path, raw: dict[str, Any], domain_ids: Iter
         failures.append(f"{relative} invalid audit id '{identifier}'")
     if path.stem != identifier:
         failures.append(f"{relative} filename must be {identifier}.yml")
+    created_at = raw.get("created_at")
+    if not isinstance(created_at, str):
+        failures.append(f"{relative} missing created_at timestamp")
+    else:
+        try:
+            datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            failures.append(f"{relative} created_at must be a UTC RFC 3339 timestamp")
     if raw.get("mode") not in {"scope", "full"}:
         failures.append(f"{relative} invalid audit mode '{raw.get('mode')}'")
     if "findings" not in raw or not isinstance(raw.get("findings"), list):
@@ -141,14 +178,22 @@ def validate_audit(repo: Path, path: Path, raw: dict[str, Any], domain_ids: Iter
             ["cat-file", "-e", f"{tree}:{audit_path}"], cwd=repo, check=False
         ).returncode:
             failures.append(f"{relative} audit path '{audit_path}' does not exist in tree {tree}")
+    finding_ids: list[str] = []
     for finding in raw.get("findings", []):
         if not isinstance(finding, dict):
             failures.append(f"{relative} finding must be a mapping")
             continue
+        finding_unknown = sorted(
+            set(finding) - {"id", "summary", "evidence", "proposed", "disposition", "authority"}
+        )
+        if finding_unknown:
+            failures.append(f"{relative} finding has unknown field '{finding_unknown[0]}'")
         fid = finding.get("id")
         flabel = f"{relative}:{fid}"
         if not _valid_id(fid):
             failures.append(f"{relative} invalid finding id '{fid}'")
+        else:
+            finding_ids.append(str(fid))
         if not finding.get("summary"):
             failures.append(f"{flabel} missing summary")
         evidence = refs(finding.get("evidence"))
@@ -166,6 +211,8 @@ def validate_audit(repo: Path, path: Path, raw: dict[str, Any], domain_ids: Iter
             failures.append(f"{flabel} invalid disposition '{finding.get('disposition')}'")
         if finding.get("authority"):
             failures.extend(_authority(repo, finding.get("authority"), flabel))
+    if len(finding_ids) != len(set(finding_ids)):
+        failures.append(f"{relative} finding ids must be unique")
     return failures
 
 

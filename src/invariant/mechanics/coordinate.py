@@ -115,7 +115,7 @@ def validate_plan(repo: Path, value: str) -> list[str]:
             if path_claim.startswith("/") or ".." in Path(path_claim).parts:
                 failures.append(f"unit {unit} has unsafe path claim {path_claim}")
         for verifier in verifiers:
-            if not verifier.startswith(("command:", "test:", "schema:")):
+            if not verifier.startswith(("command:", "test:", "schema:", "runner:")):
                 failures.append(f"unit {unit} has unsupported verifier {verifier}")
         dependencies = set(governance.refs(item.get("dependencies")))
         dependency_sets[unit] = dependencies

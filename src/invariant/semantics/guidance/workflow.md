@@ -35,11 +35,12 @@ are executable cross-domain promises. Audits and discoveries are evidence, never
 discovery records observation, causal basis, relevance, and disposition; it may resolve to
 architecture, governance, implementation, documentation, tests, follow-up work, or no artifact.
 
-For an initial governance run, frame a full audit, investigate the repository without interrupting
-the human for code-level details, and save the completed findings with `invariant evidence audit
-save <id> --mode full --input <findings-file>`. The input is a version-1 mapping containing only
-`findings`; Invariant stamps the audit ID, mode, ground, and exact tree before writing it under
-`.invariant/audits/`. The audit remains evidence rather than authority.
+For an initial governance run, start with `invariant initial-governance begin <task-id>`. This opens
+the managed branch before any audit artifact exists. Investigate without interrupting the human for
+code-level details, then save the completed version-1 findings through `invariant
+initial-governance audit-save <task-id> <label> --input <findings-file>`. Invariant stamps a unique
+timestamped ID, UTC `created_at`, ground, and exact tree before writing under `.invariant/audits/`.
+The audit remains evidence rather than authority.
 
 Under `authority: agent`, continue directly from the saved audit through adoption: establish the
 smallest justified domains and architecture, attach executable verifiers to relied-on contracts,
@@ -48,6 +49,13 @@ managed task lifecycle. Do not insert a routine approval stop between audit and 
 `authority: human`, stop after saving and summarizing the audit so the human can request deeper
 investigation, adopt all ready findings, adopt selected findings, or defer adoption. `execution`
 independently controls branch and landing pauses after the semantic decision has been made.
+
+Use `invariant task assessment prepare <task-id>` after committing the candidate. It saves one
+candidate-bound draft in Git-local task runtime and reports all required semantic completions,
+recommended architecture reviews, and checks that will actually run. Complete the draft, inspect
+each recommended decision before acknowledging it, then run `invariant task finish <task-id>`; it
+uses that draft by default. Use the published `evidence audit schema` and `task assessment schema`
+commands rather than inspecting Invariant's implementation.
 
 When repository work exposes a potential discovery, assemble its paths, searched scope, evidence,
 and relevance without asking the human for code-level details. Under `authority: human`, the

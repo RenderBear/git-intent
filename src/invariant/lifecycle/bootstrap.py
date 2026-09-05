@@ -13,12 +13,12 @@ from invariant.semantics import guidance
 START = "<!-- invariant:workflow:start -->"
 END = "<!-- invariant:workflow:end -->"
 AGENT_GOVERNANCE_PROMPT = (
-    "Run the initial governance workflow with Invariant. Audit the repository, save the audit, "
+    "Run 'invariant initial-governance begin initial-governance', investigate the repository, save the audit, "
     "then adopt and land the initial domains, architecture references, and executable contracts "
     "without routine approval pauses. Escalate only decisions outside your authority."
 )
 HUMAN_GOVERNANCE_PROMPT = (
-    "Run the initial governance workflow with Invariant. Audit the repository and save the audit, "
+    "Run 'invariant initial-governance begin initial-governance', investigate the repository and save the audit, "
     "then give me a concise findings summary and clear choices to investigate further, adopt all "
     "ready findings, adopt selected findings, or defer adoption."
 )
