@@ -63,9 +63,12 @@ def _select(
 
 def _logo() -> None:
     print()
-    print(_color("1;35", "╭───╮"))
-    print(f"{_color('1;35', '│ ≡ │')}  {_color('1', 'INVARIANT')}")
-    print(f"{_color('1;35', '╰───╯')}  {_color('2', 'Durable intent for agentic work')}")
+    print(f"{_color('1;35', '╭───╮')}  {_color('1', 'INVARIANT')}")
+    print(
+        f"{_color('1;35', '│ ≡ │')}  "
+        f"{_color('2', 'Durable architectural intent for agentic work')}"
+    )
+    print(_color("1;35", "╰───╯"))
 
 
 def _interactive(repo) -> bootstrap.BootstrapSettings:
