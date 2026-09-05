@@ -11,6 +11,7 @@ from invariant.semantics.models import Assessment, TaskIntent
 
 
 PACKAGE = Path(__file__).parents[1] / "src" / "invariant"
+REPOSITORY = Path(__file__).parents[1]
 
 
 def imported_modules(path: Path) -> set[str]:
@@ -131,3 +132,9 @@ def test_stage_guidance_remains_free_form_and_composable() -> None:
     assert "# Optional outcome review" in text
     assert "Requested meaning" in text
     assert "Trace behavior end to end" in text
+
+
+def test_installed_agent_workflow_matches_portable_reference() -> None:
+    example = (REPOSITORY / "AGENTS.example.md").read_text(encoding="utf-8")
+    fenced = example.split("```markdown\n", 1)[1].rsplit("\n```", 1)[0].strip()
+    assert fenced == guidance.read("workflow")

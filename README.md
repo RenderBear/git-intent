@@ -47,6 +47,31 @@ Confirm the installation:
 invariant --version
 ```
 
+## Initialize a repository
+
+From the repository root, run:
+
+```bash
+invariant init
+```
+
+Interactive setup explains each repository setting before asking for a value. It configures Codex,
+Claude Code, or both; writes the selected values to `.invariant/config.yml`; and safely adds a
+managed Invariant workflow to the applicable root instruction files without replacing existing
+content.
+
+Use every safe default without prompts:
+
+```bash
+invariant init --defaults
+```
+
+This selects both Codex and Claude Code, assisted semantic resolution, automatic lifecycle
+execution, the current branch as the automatic integration target, local-only landing, and the
+optional lifecycle bookends disabled. Initialization does not run an audit; after setup it prints a
+recommended natural-language request for your coding agent to conduct a full audit and establish
+the initial domains, architecture references, and executable contracts.
+
 ## Use Invariant
 
 Invariant does not contain or connect to a model. Codex, Claude Code, or another coding harness
@@ -64,10 +89,10 @@ files, or manage branches. Those are agent and Invariant responsibilities.
 
 ### Use with a coding agent
 
-Activate Invariant once in the repository's persistent agent instructions. The portable policy
-block in [AGENTS.example.md](AGENTS.example.md) can live in `AGENTS.md` for Codex, `CLAUDE.md` for
-Claude Code, or the equivalent instruction surface for another coding agent or harness. To share one
-copy between Codex and Claude Code, keep it in `AGENTS.md` and add `@AGENTS.md` to `CLAUDE.md`.
+`invariant init` activates Invariant in the repository's persistent agent instructions. For Codex it
+uses `AGENTS.md`; for Claude Code it uses `CLAUDE.md`; when both are selected, Claude imports the
+shared workflow from `AGENTS.md`. [AGENTS.example.md](AGENTS.example.md) remains a portable reference
+for other coding agents and harnesses.
 
 The user can then ask for a change normally. The coding agent interprets the goal, invokes the
 `invariant` commands through its shell, implements and commits on the branch Invariant creates,
@@ -95,9 +120,10 @@ Its effective defaults are:
 
 ```yaml
 version: 1
+harnesses: [codex, claude]
 resolution: assisted
 execution: auto
-integration_branch: <current branch>
+integration_branch: auto
 push_remote: off
 lifecycle:
   intent_expansion: false
@@ -109,19 +135,22 @@ Settings:
 | Setting | Default | Values | What it controls |
 |---|---|---|---|
 | `version` | `1` | `1` | Configuration schema version. It is fixed and not user-configurable. |
+| `harnesses` | `[codex, claude]` | Any non-empty subset of `codex`, `claude` | Which root agent instruction files receive the managed Invariant workflow during initialization. |
 | `resolution` | `assisted` | `assisted`, `auto` | Whether consequential semantic ambiguity needs a human or may be settled by an agent acting within accepted authority. |
 | `execution` | `auto` | `auto`, `assisted` | Whether state-changing lifecycle transitions run immediately or pause for explicit continuation. |
-| `integration_branch` | current branch | local branch name | The branch that receives verified landings. `config init` persists the current branch name. |
+| `integration_branch` | `auto` | `auto`, local branch name | The branch that receives verified landings. `auto` uses the current branch when a task begins; a name fixes one local convergence target. |
 | `push_remote` | `off` | `off`, `on` | Whether a successful landing stays local or pushes the exact verified commit to the integration branch's existing upstream. |
 | `lifecycle.intent_expansion` | `false` | `false`, `true` | Whether work pauses for explicit outcomes, acceptance criteria, and constraints before implementation. Set with `off` or `on` through the CLI. |
 | `lifecycle.outcome_review` | `false` | `false`, `true` | Whether those outcomes must be assessed against the exact candidate before landing. Set with `off` or `on` through the CLI. |
 
-Inspect the resolved values, persist them, or update one setting at a time:
+All selections live in `.invariant/config.yml`. Edit that tracked file directly or inspect and update
+validated settings through the CLI:
 
 ```bash
 invariant config show
-invariant config init
+invariant config set harnesses codex,claude
 invariant config set execution assisted
+invariant config set integration_branch auto
 invariant config set integration_branch main
 invariant config set push_remote on
 invariant config set lifecycle.intent_expansion on

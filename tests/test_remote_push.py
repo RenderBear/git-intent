@@ -8,9 +8,11 @@ from invariant.mechanics import config, git, landing
 
 def _configuration(push_remote: str, branch: str = "main") -> config.Config:
     return config.Config(
+        harnesses=("claude", "codex"),
         resolution="assisted",
         execution="auto",
         integration_branch=branch,
+        integration_branch_setting=branch,
         push_remote=push_remote,
         source="test",
         branch_source="test",

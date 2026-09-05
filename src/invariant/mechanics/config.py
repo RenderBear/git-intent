@@ -14,6 +14,7 @@ from invariant.mechanics.documents import dump_yaml, load_yaml
 
 CONFIG_PATH = Path(".invariant/config.yml")
 SETTABLE_KEYS = {
+    "harnesses",
     "resolution",
     "execution",
     "integration_branch",
@@ -21,6 +22,7 @@ SETTABLE_KEYS = {
     "lifecycle.intent_expansion",
     "lifecycle.outcome_review",
 }
+HARNESS_CHOICES = {"claude", "codex"}
 
 
 @dataclass(frozen=True)
@@ -31,9 +33,11 @@ class LifecycleOptions:
 
 @dataclass(frozen=True)
 class Config:
+    harnesses: tuple[str, ...]
     resolution: str
     execution: str
     integration_branch: str
+    integration_branch_setting: str
     push_remote: str
     source: str
     branch_source: str
@@ -64,10 +68,29 @@ def _from_raw(
 ) -> Config:
     if not isinstance(raw, dict) or raw.get("version") != 1:
         raise InvariantError("Invariant: .invariant/config.yml must declare version: 1")
-    allowed = {"version", "resolution", "execution", "integration_branch", "push_remote", "lifecycle"}
+    allowed = {
+        "version",
+        "harnesses",
+        "resolution",
+        "execution",
+        "integration_branch",
+        "push_remote",
+        "lifecycle",
+    }
     unknown = sorted(set(raw) - allowed)
     if unknown:
         raise InvariantError(f"Invariant: .invariant/config.yml has unknown field '{unknown[0]}'")
+    harnesses_raw = raw.get("harnesses", ["codex", "claude"])
+    if (
+        not isinstance(harnesses_raw, list)
+        or not harnesses_raw
+        or any(not isinstance(item, str) or item not in HARNESS_CHOICES for item in harnesses_raw)
+    ):
+        raise InvariantError(
+            "Invariant: .invariant/config.yml harnesses must be a non-empty list containing codex or claude"
+        )
+    selected_harnesses = set(harnesses_raw)
+    harnesses = tuple(item for item in ("codex", "claude") if item in selected_harnesses)
     resolution = raw.get("resolution", "assisted")
     if resolution not in {"assisted", "auto"}:
         raise InvariantError(
@@ -98,16 +121,24 @@ def _from_raw(
     lifecycle = LifecycleOptions(
         lifecycle_raw.get("intent_expansion", False), lifecycle_raw.get("outcome_review", False)
     )
-    configured = raw.get("integration_branch")
-    if configured is not None and (not isinstance(configured, str) or not configured):
-        raise InvariantError("Invariant: integration_branch must be a non-empty branch name")
-    branch = configured or fallback_branch
-    branch_source = "config" if configured else fallback_source
+    configured = raw.get("integration_branch", "auto")
+    if not isinstance(configured, str) or not configured:
+        raise InvariantError("Invariant: integration_branch must be auto or a non-empty branch name")
+    if configured == "auto":
+        branch = fallback_branch
+        branch_source = fallback_source
+    else:
+        if git.run(["check-ref-format", "--branch", configured], cwd=repo, check=False).returncode:
+            raise InvariantError(f"Invariant: invalid integration branch '{configured}'")
+        branch = configured
+        branch_source = "config"
     return _finish(
         repo,
+        harnesses,
         resolution,
         execution,
         branch,
+        configured,
         push_remote,
         source,
         branch_source,
@@ -121,9 +152,11 @@ def resolve(repo: Path) -> Config:
         branch, branch_source = _current(repo)
         return _finish(
             repo,
+            ("codex", "claude"),
             "assisted",
             "auto",
             branch,
+            "auto",
             "off",
             "default",
             branch_source,
@@ -149,9 +182,11 @@ def resolve_at(repo: Path, ref: str, integration_branch: str) -> Config:
     if result.returncode:
         return _finish(
             repo,
+            ("codex", "claude"),
             "assisted",
             "auto",
             integration_branch,
+            "auto",
             "off",
             "default",
             "accepted",
@@ -176,9 +211,10 @@ def resolve_at(repo: Path, ref: str, integration_branch: str) -> Config:
 def _document(config: Config) -> dict[str, Any]:
     return {
         "version": 1,
+        "harnesses": list(config.harnesses),
         "resolution": config.resolution,
         "execution": config.execution,
-        "integration_branch": config.integration_branch,
+        "integration_branch": config.integration_branch_setting,
         "push_remote": config.push_remote,
         "lifecycle": {
             "intent_expansion": config.lifecycle.intent_expansion,
@@ -187,12 +223,45 @@ def _document(config: Config) -> dict[str, Any]:
     }
 
 
-def initialize(repo: Path) -> list[str]:
+def initialize(
+    repo: Path,
+    *,
+    harnesses: tuple[str, ...] | None = None,
+    resolution: str | None = None,
+    execution: str | None = None,
+    integration_branch: str | None = None,
+    push_remote: str | None = None,
+    intent_expansion: bool | None = None,
+    outcome_review: bool | None = None,
+) -> list[str]:
     path = repo / CONFIG_PATH
     if path.exists():
         raise InvariantError(f"Invariant: {CONFIG_PATH.as_posix()} already exists", code="config_exists")
-    resolved = resolve(repo)
-    dump_yaml(path, _document(resolved))
+    branch_setting = integration_branch or "auto"
+    if branch_setting == "auto":
+        fallback_branch, fallback_source = _current(repo)
+    else:
+        fallback_branch, fallback_source = branch_setting, "config"
+    document: dict[str, Any] = {
+        "version": 1,
+        "harnesses": list(harnesses if harnesses is not None else ("codex", "claude")),
+        "resolution": resolution if resolution is not None else "assisted",
+        "execution": execution if execution is not None else "auto",
+        "integration_branch": branch_setting,
+        "push_remote": push_remote if push_remote is not None else "off",
+        "lifecycle": {
+            "intent_expansion": intent_expansion is True,
+            "outcome_review": outcome_review is True,
+        },
+    }
+    _from_raw(
+        repo,
+        document,
+        source=CONFIG_PATH.as_posix(),
+        fallback_branch=fallback_branch,
+        fallback_source=fallback_source,
+    )
+    dump_yaml(path, document)
     return [f"CONFIG: created {CONFIG_PATH.as_posix()}", *lines(resolve(repo))]
 
 
@@ -210,14 +279,23 @@ def set_value(repo: Path, key: str, value: str) -> list[str]:
         current = resolve(repo)
         document = _document(current)
 
-    if key in {"resolution", "execution"}:
+    if key == "harnesses":
+        values = [item.strip() for item in value.split(",") if item.strip()]
+        if not values or any(item not in HARNESS_CHOICES for item in values):
+            raise InvariantError(
+                "Invariant: harnesses must be a comma-separated list containing codex or claude",
+                code="invalid_config_value",
+            )
+        selected = set(values)
+        document[key] = [item for item in ("codex", "claude") if item in selected]
+    elif key in {"resolution", "execution"}:
         choices = {"resolution": {"assisted", "auto"}, "execution": {"auto", "assisted"}}
         if value not in choices[key]:
             expected = " or ".join(sorted(choices[key]))
             raise InvariantError(f"Invariant: {key} must be {expected}", code="invalid_config_value")
         document[key] = value
     elif key == "integration_branch":
-        if git.run(["check-ref-format", "--branch", value], cwd=repo, check=False).returncode:
+        if value != "auto" and git.run(["check-ref-format", "--branch", value], cwd=repo, check=False).returncode:
             raise InvariantError(f"Invariant: invalid integration branch '{value}'", code="invalid_config_value")
         document[key] = value
     elif key == "push_remote":
@@ -247,9 +325,11 @@ def set_value(repo: Path, key: str, value: str) -> list[str]:
 
 def _finish(
     repo: Path,
+    harnesses: tuple[str, ...],
     resolution: str,
     execution: str,
     branch: str,
+    branch_setting: str,
     push_remote: str,
     source: str,
     branch_source: str,
@@ -266,15 +346,27 @@ def _finish(
         )
         if not allowed_unborn:
             raise InvariantError(f"Invariant: configured integration branch '{branch}' does not exist locally")
-    return Config(resolution, execution, branch, push_remote, source, branch_source, unborn, lifecycle)
+    return Config(
+        harnesses,
+        resolution,
+        execution,
+        branch,
+        branch_setting,
+        push_remote,
+        source,
+        branch_source,
+        unborn,
+        lifecycle,
+    )
 
 
 def lines(config: Config) -> list[str]:
     output = [
         "version: 1",
+        f"harnesses: {', '.join(config.harnesses)}",
         f"resolution: {config.resolution}",
         f"execution: {config.execution}",
-        f"integration_branch: {config.integration_branch}",
+        f"integration_branch: {config.integration_branch_setting}",
         f"push_remote: {config.push_remote}",
         f"source: {config.source}",
         f"integration_branch_resolved: {config.integration_branch}",

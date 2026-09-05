@@ -1,9 +1,3 @@
-# Invariant — managed agent workflow
-
-`invariant init` installs this block in the repository's selected agent instruction files. It is
-included here as a portable reference for other harnesses.
-
-```markdown
 ## Invariant lifecycle
 
 If `invariant init` left its configuration and instruction files uncommitted, commit that one-time
@@ -62,4 +56,3 @@ Repositories may independently enable `lifecycle.intent_expansion` and
 `lifecycle.outcome_review`. Expansion adds stable task-local outcome, acceptance, and constraint IDs
 before implementation. Outcome review assesses those IDs against the exact prospective tree. When
 disabled, neither bookend is required; the durable-intent lifecycle remains unchanged.
-```

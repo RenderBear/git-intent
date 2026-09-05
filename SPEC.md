@@ -208,7 +208,12 @@ Tracked repository state remains:
 .invariant/CONTRACTS.yml
 .invariant/audits/<id>.yml
 .invariant/discoveries/<id>.yml
+AGENTS.md and/or CLAUDE.md managed workflow block
 ```
+
+Initialization creates the configuration and selected agent instruction integration. Domain and
+contract registries are created only when accepted records exist; bootstrap does not manufacture
+empty semantic authority.
 
 Optional ignored coordination state remains:
 
@@ -243,14 +248,18 @@ Tracked repository configuration remains small:
 
 ```yaml
 version: 1
+harnesses: [codex, claude]
 resolution: assisted
 execution: auto
-integration_branch: main
+integration_branch: auto
 push_remote: off
 lifecycle:
   intent_expansion: false
   outcome_review: false
 ```
+
+`harnesses` records the non-empty set of supported coding harnesses configured during repository
+initialization. It controls instruction-file setup, not semantic authority or model execution.
 
 `resolution` governs semantic authority:
 
@@ -265,9 +274,9 @@ transition with `--apply`. Automatic resolution requires both accepted and propo
 to remain `auto`: enabling takes effect after integration, while returning to `assisted` is
 immediate.
 
-`integration_branch` identifies the default local convergence target. If absent, callers must pass a
-target or the CLI resolves the current branch for that invocation without persisting it as semantic
-state.
+`integration_branch` identifies the default local convergence target. `auto` resolves the current
+branch when a new task begins; a named value fixes one existing local branch as the convergence
+target. An omitted value is read as `auto` for compatibility.
 
 `push_remote` is an independent remote-publication policy:
 
@@ -286,17 +295,25 @@ after local landing reports a blocked publication while retaining the local inte
 - `assisted` presents state-changing transitions before applying them and waits for explicit
   continuation.
 
-Absence means `resolution: assisted`, `execution: auto`, `push_remote: off`, and the current branch
-as the invocation's integration target. Automatic execution is the ergonomic default; it does not
-remove briefing, branch isolation, exact-tree verification, or atomic landing. Neither execution
-mode weakens validation or grants external authority.
+Absence means both supported harnesses, `resolution: assisted`, `execution: auto`,
+`integration_branch: auto`, `push_remote: off`, and disabled optional lifecycle bookends. Automatic
+execution is the ergonomic default; it does not remove briefing, branch isolation, exact-tree
+verification, or atomic landing. Neither execution mode weakens validation or grants external
+authority.
 
-`invariant config show` displays effective values without creating state. `invariant config init`
-materializes every default in `.invariant/config.yml`. `invariant config set <key> <value>` updates
-one validated setting atomically. The settable keys are `resolution`, `execution`,
-`integration_branch`, `push_remote`, `lifecycle.intent_expansion`, and
-`lifecycle.outcome_review`. Version `1` is the configuration schema marker, not an operational
-setting.
+`invariant init` is the repository bootstrap. Interactive invocation explains and collects each
+setting; `--defaults` selects both harnesses and every safe default without prompting. It creates
+`.invariant/config.yml`, installs or updates a marked workflow block in the selected root agent
+instruction files, and prints a natural-language recommendation to ask the coding agent for a full
+audit. It never runs that audit itself. Existing unrelated agent instructions are preserved, and an
+ambiguous unmanaged Invariant section blocks initialization before project state is created.
+
+`invariant config show` displays configured and resolved values without creating state.
+`invariant config init` remains the lower-level configuration-only initializer.
+`invariant config set <key> <value>` updates one validated setting atomically. The settable keys are
+`harnesses`, `resolution`, `execution`, `integration_branch`, `push_remote`,
+`lifecycle.intent_expansion`, and `lifecycle.outcome_review`. Version `1` is the configuration schema
+marker, not an operational setting.
 
 The two `lifecycle` switches are optional semantic bookends. `intent_expansion` requires stable
 task-local outcome, acceptance, and constraint IDs before implementation. `outcome_review` requires
@@ -405,12 +422,14 @@ imply that every task needs a detailed specification.
 
 ## 8. CLI contract
 
-The executable is named `invariant`. Commands are composable and non-interactive by default.
-Interactive presentation belongs to the host.
+The executable is named `invariant`. Lifecycle and mechanical commands are composable and
+non-interactive. Repository bootstrap is the deliberate exception: `invariant init` is interactive,
+while `invariant init --defaults` is deterministic and non-interactive.
 
 Initial command groups are:
 
 ```text
+invariant init [--defaults]
 invariant config show
 invariant config init
 invariant config set <key> <value>

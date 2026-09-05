@@ -73,11 +73,14 @@ def _config(_: list[str]) -> list[str]:
     resolved = config.resolve(git.root())
     # Preserve the legacy resolver's stable six-line contract. The public CLI
     # exposes the schema version, remote policy, and lifecycle switches as well.
-    lines = config.lines(resolved)
     return [
-        line
-        for line in lines
-        if not line.startswith(("version:", "push_remote:", "intent_expansion:", "outcome_review:"))
+        f"resolution: {resolved.resolution}",
+        f"execution: {resolved.execution}",
+        f"integration_branch: {resolved.integration_branch}",
+        f"source: {resolved.source}",
+        f"integration_branch_resolved: {resolved.integration_branch}",
+        f"branch_source: {resolved.branch_source}",
+        *(["integration_branch_unborn: true"] if resolved.unborn else []),
     ]
 
 
