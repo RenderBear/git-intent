@@ -47,7 +47,8 @@ git -C "$fixture" commit -qm seed
 (cd "$fixture" && "$cli" evidence discovery capture implicit-source \
   --observation "Source recovery ownership is still implicit." \
   --evidence repo:src/a.txt --path src --domain source \
-  --basis-prose "Code and architecture agree on ownership, but recovery behavior remains incomplete." >/dev/null)
+  --basis-prose "Code and architecture agree on ownership, but recovery behavior remains incomplete." \
+  --apply >/dev/null)
 git -C "$fixture" add .invariant/discoveries/implicit-source.yml
 git -C "$fixture" commit -qm "record source discovery"
 
@@ -57,7 +58,7 @@ die() { echo "not ok - $1"; exit 1; }
 goal='Change the source with explicit acceptance'
 goal_digest=$(printf '%s' "$goal" | git -C "$fixture" hash-object --stdin)
 if out=$(cd "$fixture" && "$cli" task begin semantic-flow --goal "$goal" \
-    --posture bounded --boundary no-record --path src/a.txt --domain source 2>&1); then
+    --path src/a.txt --domain source 2>&1); then
   die "intent expansion was silently skipped"
 fi
 printf '%s\n' "$out" | grep -q '^STATUS: awaiting-intent-expansion$' ||
@@ -81,7 +82,7 @@ intent:
       prose: Existing repository intent remains unchanged.
 EOF
 out=$(cd "$fixture" && "$cli" task begin semantic-flow --goal "$goal" \
-  --posture bounded --boundary no-record --path src/a.txt --domain source --intent "$intent_file")
+  --path src/a.txt --domain source --intent "$intent_file")
 printf '%s\n' "$out" | grep -q '^STATUS: implementing$' ||
   die "expanded task did not enter implementation"
 branch=$(printf '%s\n' "$out" | sed -n 's/^BRANCH: //p')
@@ -161,18 +162,55 @@ if git -C "$fixture" show-ref --verify -q "refs/heads/$branch"; then
 fi
 ok "outcome review binds stable acceptance IDs to the exact candidate tree"
 
+if out=$(cd "$fixture" && "$cli" evidence discovery capture missing-adr \
+  --observation "No ADR describes the source boundary." \
+  --searched docs/adr --path src --domain source --related task:document-source-boundary 2>&1); then
+  die "assisted resolution recorded a discovery without approval"
+fi
+printf '%s\n' "$out" | grep -q '^PROPOSAL: record discovery missing-adr' ||
+  die "assisted discovery did not present the observation for approval"
+[ ! -e "$fixture/.invariant/discoveries/missing-adr.yml" ] ||
+  die "discovery proposal mutated tracked evidence"
 out=$(cd "$fixture" && "$cli" evidence discovery capture missing-adr \
   --observation "No ADR describes the source boundary." \
-  --searched docs/adr --path src --domain source --related task:document-source-boundary)
+  --searched docs/adr --path src --domain source --related task:document-source-boundary --apply)
 printf '%s\n' "$out" | grep -q '^STATUS: open$' || die "discovery was not captured"
 discovery="$fixture/.invariant/discoveries/missing-adr.yml"
 grep -q '^basis:' "$discovery" || die "discovery basis is missing"
 grep -q '^relevance:' "$discovery" || die "discovery relevance is missing"
 grep -q '^disposition:' "$discovery" || die "discovery disposition is missing"
+if out=$(cd "$fixture" && "$cli" evidence discovery resolve missing-adr \
+    --prose "Track documentation as follow-up work." \
+    --output task:document-source-boundary 2>&1); then
+  die "assisted resolution resolved a discovery without approval"
+fi
+printf '%s\n' "$out" | grep -q '^PROPOSAL: resolve discovery missing-adr$' ||
+  die "assisted discovery resolution did not request approval"
 (cd "$fixture" && "$cli" evidence discovery resolve missing-adr \
-  --prose "Track documentation as follow-up work." --output task:document-source-boundary >/dev/null)
+  --prose "Track documentation as follow-up work." \
+  --output task:document-source-boundary --apply >/dev/null)
+(cd "$fixture" && "$cli" config set resolution auto >/dev/null)
+if (cd "$fixture" && "$cli" evidence discovery capture premature-auto \
+    --observation "A candidate cannot authorize its own automatic resolution." \
+    --searched docs >/dev/null 2>&1); then
+  die "unaccepted automatic resolution authorized its own discovery"
+fi
+git -C "$fixture" add .invariant/config.yml
+git -C "$fixture" commit -qm "enable automatic semantic resolution"
+out=$(cd "$fixture" && "$cli" evidence discovery capture automatic-finding \
+  --observation "Automatic resolution may preserve this bounded finding." --searched docs)
+printf '%s\n' "$out" | grep -q '^STATUS: open$' ||
+  die "automatic resolution did not record an authorized discovery"
+[ -f "$fixture/.invariant/discoveries/automatic-finding.yml" ] ||
+  die "automatic discovery record is missing"
+(cd "$fixture" && "$cli" config set resolution assisted >/dev/null)
+if (cd "$fixture" && "$cli" evidence discovery capture immediate-assistance \
+    --observation "Assisted resolution takes effect before its configuration lands." \
+    --searched docs >/dev/null 2>&1); then
+  die "switching back to assisted resolution was not immediate"
+fi
 (cd "$fixture" && "$cli" state validate >/dev/null) ||
   die "discovery resolution to non-contract work was rejected"
-ok "discoveries resolve broadly and do not have to become contracts"
+ok "assisted discoveries require approval while automatic discoveries can proceed"
 
 echo "4 semantic option checks passed"

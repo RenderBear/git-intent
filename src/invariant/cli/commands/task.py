@@ -13,8 +13,11 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     begin = commands.add_parser("begin")
     begin.add_argument("task_id")
     begin.add_argument("--goal", required=True)
-    begin.add_argument("--posture", required=True)
-    begin.add_argument("--boundary", required=True)
+    begin.add_argument(
+        "--boundary",
+        default="unresolved",
+        help="initial durable-meaning disposition (defaults to unresolved)",
+    )
     begin.add_argument("--path", action="append", default=[])
     begin.add_argument("--interface", action="append", default=[])
     begin.add_argument("--domain", action="append", default=[])
@@ -68,7 +71,6 @@ def _begin(args: argparse.Namespace) -> list[str]:
         _repo(),
         args.task_id,
         goal=args.goal,
-        posture=args.posture,
         boundary=args.boundary,
         paths=args.path,
         interfaces=args.interface,
@@ -116,4 +118,3 @@ def _invalidate(args: argparse.Namespace) -> list[str]:
 
 def _guidance(args: argparse.Namespace) -> list[str]:
     return tasks.task_guidance(_repo(), args.task_id)
-

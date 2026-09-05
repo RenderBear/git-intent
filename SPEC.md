@@ -1,8 +1,10 @@
 # Invariant CLI — design of record
 
-Invariant preserves accepted architectural meaning while repositories change. It consists of a
-portable command-line application that owns deterministic mechanics and the fixed repository
-lifecycle, a small semantic protocol, and optional integrations for agents and automation.
+Invariant is a repository-native control plane for long-running agentic work, delivered as a
+portable command-line application. It preserves accepted architectural meaning while repositories
+change by owning deterministic mechanics, the fixed repository lifecycle, a small semantic
+protocol, and optional integrations for agents and automation. It does not host or execute the
+model loop.
 
 The design separates three concerns:
 
@@ -10,10 +12,12 @@ The design separates three concerns:
 2. **Mechanics** calculates and enforces deterministic repository facts.
 3. **Lifecycle** advances work through briefing, isolation, verification, and landing.
 
-The CLI owns mechanics and lifecycle. Humans or models own semantics. The invoking application owns
-the conversation and implementation. Explicit repository configuration may authorize one bounded
-external effect—publishing a verified landing to an existing Git upstream—and the host owns every
-other external effect. None of these layers may silently assume another layer's authority.
+The CLI owns mechanics and lifecycle. A coding agent or harness owns repository investigation and
+implementation. Humans provide intent, resolve escalated ambiguity or conflict, and may approve
+lifecycle transitions; they are not expected to inspect repository internals. Explicit repository
+configuration may authorize one bounded external effect—publishing a verified landing to an
+existing Git upstream—and the host owns every other external effect. None of these layers may
+silently assume another layer's authority.
 
 ## 1. Goals
 
@@ -53,7 +57,8 @@ Invariant does not:
 
 ### 3.1 Semantics
 
-Semantic work may be performed by a human, an agent, or both. It owns:
+Semantic work is normally performed by the coding agent, with human authority requested only when
+accepted intent is insufficient or contradictory. It owns:
 
 - interpreting the user's requested outcome;
 - selecting relevant semantic domains;
@@ -64,8 +69,9 @@ Semantic work may be performed by a human, an agent, or both. It owns:
 - reviewing architecture against a candidate;
 - resolving incompatible meaning within granted authority.
 
-Semantic work produces explicit inputs to the CLI. It never gains authority merely because a model
-said something or a path matched a pattern.
+Semantic work produces explicit inputs to the CLI. The agent may inspect code and prepare those
+inputs; the human supplies goals and decisions, not repository plumbing. Semantic output never gains
+authority merely because a model said something or a path matched a pattern.
 
 Skills may assist semantic work, but skills are optional adapters. They do not implement repository
 state transitions, branch policy, caches, retries, or the execution loop.
@@ -106,24 +112,29 @@ The CLI owns the fixed repository lifecycle. It owns:
 - optionally publishing that exact landing under explicit tracked policy;
 - releasing associated leases and invalidating the completed receipt.
 
-The host may be a person, shell script, coding agent, CI job, IDE, or custom harness. It owns the
-conversation, performs implementation inside the CLI-provided work context, supplies semantic
-decisions, presents progress and approval requests, and owns every external effect beyond the
-optional configured Git publication step.
+The host may be a coding agent, purpose-built harness, IDE integration, or automation system. It
+owns the conversation, performs implementation inside the CLI-provided work context, supplies
+semantic decisions, presents progress and approval requests to the human, and owns every external
+effect beyond the optional configured Git publication step.
 
 The lifecycle is fixed even when execution is automatic. Automation removes routine pauses; it does
 not remove lifecycle stages or checks.
 
 ## 4. Application boundary
 
-The CLI is a standalone local lifecycle application, but it is not an agent harness. It can be used
-directly by a person or executed as a child process by another application.
+The CLI is a standalone local lifecycle application, but it is not an agent harness. Its primary
+role is to be executed as a child process by a coding agent or another application. Direct human use
+is limited to configuration, inspection, resolution support, and optional lifecycle control—not
+repository investigation or implementation.
 
 The dependency direction is always:
 
 ```text
-human / Codex / CI / IDE / harness
-          | semantic decisions + implementation
+human intent, authority, and optional approvals
+          |
+          v
+coding agent / IDE / harness / automation
+          | repository analysis + implementation + semantic protocol
           v
      invariant task lifecycle
           | deterministic mechanics
@@ -167,6 +178,10 @@ begin
 `invariant task begin` captures the target, gathers the mechanically available context, records the
 semantic envelope, and creates or reuses the generated work branch. It returns the branch and
 worktree context in which the host performs the requested implementation.
+
+The initial durable-meaning boundary defaults to `unresolved`. A harness may provide a grounded
+disposition early, but the CLI does not require a human or agent to predict candidate reach before
+the candidate exists. Final boundary review remains mandatory during `task finish`.
 
 `invariant task finish` constructs the exact prospective merge tree, recomputes reach, validates the
 current semantic assessment, runs affected checks and reviews, and compare-and-swaps the integration
@@ -239,9 +254,16 @@ lifecycle:
 
 `resolution` governs semantic authority:
 
-- `assisted` sends consequential unresolved meaning to a human;
+- `assisted` previews discovery capture and resolution without mutation, then sends the semantic
+  proposal to a human for approval;
 - `auto` permits an agent to resolve meaning when the current request and accepted authority are
   sufficient.
+
+The agent supplies causal evidence, searched paths, domains, and record structure in both modes.
+The human supplies intent or authority only; after approval, the harness reapplies an assisted
+transition with `--apply`. Automatic resolution requires both accepted and proposed configuration
+to remain `auto`: enabling takes effect after integration, while returning to `assisted` is
+immediate.
 
 `integration_branch` identifies the default local convergence target. If absent, callers must pass a
 target or the CLI resolves the current branch for that invocation without persisting it as semantic
@@ -273,7 +295,8 @@ mode weakens validation or grants external authority.
 materializes every default in `.invariant/config.yml`. `invariant config set <key> <value>` updates
 one validated setting atomically. The settable keys are `resolution`, `execution`,
 `integration_branch`, `push_remote`, `lifecycle.intent_expansion`, and
-`lifecycle.outcome_review`. Version `1` is the configuration schema marker, not a runtime setting.
+`lifecycle.outcome_review`. Version `1` is the configuration schema marker, not an operational
+setting.
 
 The two `lifecycle` switches are optional semantic bookends. `intent_expansion` requires stable
 task-local outcome, acceptance, and constraint IDs before implementation. `outcome_review` requires
@@ -406,7 +429,7 @@ invariant context reach [--base <ref>] [--path <path>]...
                         [--interface <name>]... [--domain <id>]...
 invariant evidence audit <scope|full> ...
 invariant evidence fresh <audit-or-discovery> [--at <ref>]
-invariant evidence discovery <capture|resolve> ...
+invariant evidence discovery <capture|resolve> ... [--apply]
 invariant coordinate plan validate <plan>
 invariant coordinate status [<plan>]
 invariant coordinate lease <acquire|renew|release|list|fresh|reap> ...
@@ -573,6 +596,13 @@ readable during migration.
 Evidence changes can make an audit or discovery mechanically suspect. Whether changed evidence
 contradicts a finding remains semantic judgment.
 
+Discovery is agent-mediated. The coding agent supplies the observation, evidence, searched scope,
+paths, domains, and related records. In assisted resolution mode, capture and resolution first
+return a `resolution_required` proposal and leave tracked state unchanged. The host presents only
+the observation and required semantic decision to the human, then repeats the transition with
+`--apply` after approval. In automatic mode, the transition proceeds when the agent has sufficient
+authority. Detailed evidence fields remain part of the harness protocol, not the human interface.
+
 ### 11.1 Repository archaeology and semantic reasoning
 
 Managed guidance includes prose-rich repository archaeology and semantic reasoning. The purpose is
@@ -639,7 +669,7 @@ A receipt may bind:
 - exact goal digest as a textual drift detector;
 - selected paths, interfaces, and domains;
 - selected governance and defining-material digests;
-- the caller's posture and boundary disposition.
+- the current boundary disposition.
 
 The CLI reports changed dependencies. The semantic caller decides whether changed goal text remains
 compatible with the cached envelope. Successful confirmation may refresh the exact goal digest only

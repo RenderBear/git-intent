@@ -13,9 +13,6 @@ from invariant.semantics import guidance
 from invariant.semantics.models import Assessment, TaskIntent
 
 
-POSTURES = {"local", "bounded", "open", "gated"}
-
-
 def _valid_boundary(value: str) -> bool:
     return value in {"no-record", "recorded", "unresolved"} or (
         value.startswith("audit:") and git.valid_id(value.removeprefix("audit:"))
@@ -112,7 +109,6 @@ def begin(
     task: str,
     *,
     goal: str,
-    posture: str,
     boundary: str,
     paths: Iterable[str] = (),
     interfaces: Iterable[str] = (),
@@ -125,8 +121,6 @@ def begin(
         raise InvariantError(f"Invariant: invalid task id '{task}'")
     if not goal:
         raise InvariantError("Invariant: task begin requires --goal")
-    if posture not in POSTURES:
-        raise InvariantError("Invariant: task begin requires a valid --posture")
     if not _valid_boundary(boundary):
         raise InvariantError("Invariant: task begin requires a valid --boundary")
     path = receipts.receipt_path(repo, task)
@@ -169,7 +163,6 @@ def begin(
         repo,
         task,
         goal=goal,
-        posture=posture,
         boundary=boundary,
         paths=paths,
         interfaces=interfaces,
@@ -539,7 +532,6 @@ def task_guidance(repo: Path, task: str) -> list[str]:
         "",
         f"Task: {task}",
         f"Stage: {lifecycle.get('stage') or 'briefed'}",
-        f"Posture: {intent.get('posture') or 'unknown'}",
         f"Boundary: {intent.get('boundary') or 'unknown'}",
         f"Accepted ground: {captured_head or 'unknown'}",
         f"Paths: {', '.join(paths) or 'none selected'}",

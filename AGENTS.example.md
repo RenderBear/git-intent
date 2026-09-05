@@ -8,10 +8,11 @@ Append this block to the repository's always-loaded agent instructions.
 Use the `invariant` CLI for every repository mutation. Do not invoke Invariant's internal scripts
 or reproduce its branch, receipt, verification, or landing mechanics yourself.
 
-Before the first mutation, interpret the requested outcome, select any relevant semantic domains,
-and decide the current posture and durable-meaning boundary. Then run:
+Before the first mutation, interpret the requested outcome and select any relevant semantic
+domains. If the durable-meaning boundary is already grounded, include it; otherwise let it remain
+unresolved until candidate review. Then run:
 
-`invariant --format json task begin <task-id> --goal <text> --posture <local|bounded|open|gated> --boundary <no-record|recorded|unresolved|audit:id> [--path <path>]... [--interface <name>]... [--domain <id>]...`
+`invariant --format json task begin <task-id> --goal <text> [--boundary <no-record|recorded|unresolved|audit:id>] [--path <path>]... [--interface <name>]... [--domain <id>]...`
 
 Implement and commit the requested change on the generated branch returned by the command. The CLI
 owns the fixed lifecycle and its Git state; the agent owns implementation and semantic judgment.
@@ -35,6 +36,13 @@ name semantic responsibilities, not directories. Architecture Markdown is canoni
 are executable cross-domain promises. Audits and discoveries are evidence, never authority. A
 discovery records observation, causal basis, relevance, and disposition; it may resolve to
 architecture, governance, implementation, documentation, tests, follow-up work, or no artifact.
+
+When repository work exposes a potential discovery, assemble its paths, searched scope, evidence,
+and relevance without asking the human for code-level details. Under `resolution: assisted`, the
+first capture or resolution attempt returns an approval proposal without mutating tracked state.
+Present the human with the observation and the decision it needs—not the internal fields—and rerun
+the same transition with `--apply` only after approval. Under `resolution: auto`, proceed when the
+request and accepted authority are sufficient.
 
 `resolution: assisted | auto` controls who resolves semantic ambiguity. `execution: auto | assisted`
 controls lifecycle pauses; both preserve the same stages and checks. Neither setting authorizes

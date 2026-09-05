@@ -75,8 +75,8 @@ def open_receipt(
     task: str,
     *,
     goal: str,
-    posture: str,
     boundary: str,
+    posture: str | None = None,
     paths: Iterable[str] = (),
     interfaces: Iterable[str] = (),
     domains: Iterable[str] = (),
@@ -87,6 +87,15 @@ def open_receipt(
     target = resolved.integration_branch
     head = integration_head(repo, target)
     selected = sorted(set(domains))
+    intent = {
+        "governance_digest": governance.digest(repo, selected),
+        "integration_governance_digest": (
+            governance.digest(repo, selected, head) if head != "unborn" else git.hash_text(repo, "")
+        ),
+        "boundary": boundary,
+    }
+    if posture:
+        intent["posture"] = posture
     receipt = {
         "version": 1,
         "repository": repository_identity(repo, target),
@@ -100,14 +109,7 @@ def open_receipt(
             "interfaces": sorted(set(interfaces)),
             "domains": selected,
         },
-        "intent": {
-            "governance_digest": governance.digest(repo, selected),
-            "integration_governance_digest": (
-                governance.digest(repo, selected, head) if head != "unborn" else git.hash_text(repo, "")
-            ),
-            "posture": posture,
-            "boundary": boundary,
-        },
+        "intent": intent,
         "options": {
             "intent_expansion": intent_expansion,
             "outcome_review": outcome_review,
@@ -225,14 +227,10 @@ def check_receipt(
         output.append(f"HEAD: advanced {cached_head}..{current_head} — mergeable, brief reused")
     if goal_changed:
         output.append("GOAL: changed text accepted for cached semantic envelope")
-    output.extend(
-        [
-            f"BRIEF: fresh {task}",
-            "REUSE: cached semantic envelope",
-            f"POSTURE: {intent.get('posture', '')}",
-            f"BOUNDARY: {intent.get('boundary', '')}",
-        ]
-    )
+    output.extend([f"BRIEF: fresh {task}", "REUSE: cached semantic envelope"])
+    if intent.get("posture"):
+        output.append(f"POSTURE: {intent['posture']}")
+    output.append(f"BOUNDARY: {intent.get('boundary', '')}")
     return receipt, output
 
 

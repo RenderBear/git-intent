@@ -24,7 +24,7 @@ die() { echo "not ok - $1"; exit 1; }
 goal='Change source through the CLI'
 goal_digest=$(printf '%s' "$goal" | git -C "$fixture" hash-object --stdin)
 out=$(cd "$fixture" && "$cli" task begin cli-flow --goal "$goal" \
-  --posture local --boundary no-record --path src/a.txt)
+  --path src/a.txt)
 printf '%s\n' "$out" | grep -q '^STATUS: implementing$' || die "automatic begin did not enter implementation"
 branch=$(printf '%s\n' "$out" | sed -n 's/^BRANCH: //p')
 case "$branch" in intent/work/cli-flow-*) ;; *) die "begin did not generate a task branch" ;; esac
@@ -32,6 +32,7 @@ case "$branch" in intent/work/cli-flow-*) ;; *) die "begin did not generate a ta
 receipt="$fixture/.git/invariant/briefs/cli-flow.yml"
 [ -f "$receipt" ] || die "begin did not create a Git-local receipt"
 grep -q '^mechanics_digest:' "$receipt" || die "receipt does not bind CLI mechanics"
+grep -q '^  boundary: unresolved$' "$receipt" || die "omitted boundary was not kept unresolved"
 if grep -q '^skills:' "$receipt"; then die "receipt still binds skill packages"; fi
 ok "automatic begin opens a receipt and isolated generated branch"
 
@@ -78,7 +79,7 @@ git -C "$fixture" commit -qm "add failing check"
 failed_goal='Keep failed work recoverable'
 failed_digest=$(printf '%s' "$failed_goal" | git -C "$fixture" hash-object --stdin)
 out=$(cd "$fixture" && "$cli" task begin failed-flow --goal "$failed_goal" \
-  --posture local --boundary no-record --path src/a.txt)
+  --boundary no-record --path src/a.txt)
 failed_branch=$(printf '%s\n' "$out" | sed -n 's/^BRANCH: //p')
 printf 'not-landed\n' >"$fixture/src/a.txt"
 git -C "$fixture" add src/a.txt
@@ -125,7 +126,7 @@ git -C "$fixture" add .invariant/config.yml
 git -C "$fixture" commit -qm "configure assisted execution"
 
 out=$(cd "$fixture" && "$cli" task begin assisted-flow --goal "Pause before branch creation" \
-  --posture local --boundary no-record --path src/a.txt)
+  --boundary no-record --path src/a.txt)
 printf '%s\n' "$out" | grep -q '^STATUS: awaiting-branch$' || die "assisted begin did not pause"
 assisted_branch=$(printf '%s\n' "$out" | sed -n 's/^BRANCH: //p')
 [ "$(git -C "$fixture" branch --show-current)" = main ] || die "assisted begin changed branches without approval"

@@ -227,7 +227,7 @@ def capture_discovery(
     action = "WOULD-RECORD" if dry_run else "RECORDED"
     return [
         f"DISCOVERY: {identifier}",
-        f"STATUS: open",
+        f"STATUS: {'proposed' if dry_run else 'open'}",
         f"GROUND: {ground}",
         f"TREE: {tree}",
         f"{action}: {destination.relative_to(repo)}",
@@ -265,4 +265,8 @@ def resolve_discovery(
     if not dry_run:
         dump_yaml(path, raw)
     action = "WOULD-RESOLVE" if dry_run else "RESOLVED"
-    return [f"DISCOVERY: {identifier}", "STATUS: resolved", f"{action}: {path.relative_to(repo)}"]
+    return [
+        f"DISCOVERY: {identifier}",
+        f"STATUS: {'proposed' if dry_run else 'resolved'}",
+        f"{action}: {path.relative_to(repo)}",
+    ]

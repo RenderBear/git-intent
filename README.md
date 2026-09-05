@@ -18,9 +18,12 @@ remain after the work ends; plans, claims, and leases do not.
 
 ![A Git-grounded lifecycle carries a user goal through coordination, execution, verification, conflict resolution by an agent or human, and local landing. A durable semantic layer maps domains to architecture files and contracts to contract files.](.github/assets/lifecycle.svg)
 
-Invariant is a standalone Python CLI. Any coding agent, CI job, IDE, harness, or person can invoke
-the same local command contract. It advances the local integration branch only after exact-candidate
-verification succeeds and keeps remote publication disabled by default.
+Invariant is a repository-native control plane for coding agents and harnesses, delivered as a
+standalone Python CLI. It governs durable intent and verified lifecycle transitions without hosting
+or executing the model loop. Humans provide intent, resolve escalated conflicts or ambiguity, and
+may control lifecycle transitions; agents handle repository internals. Invariant advances the
+integration branch only after exact-candidate verification succeeds and keeps remote publication
+disabled by default.
 
 The complete design is in [SPEC.md](SPEC.md).
 
@@ -44,9 +47,49 @@ Confirm the installation:
 invariant --version
 ```
 
+## Use Invariant
+
+Invariant does not contain or connect to a model. Codex, Claude Code, or another coding harness
+provides the model, conversation, and tools; Invariant provides the durable repository context and
+verified lifecycle that the harness invokes.
+
+| Actor | Responsibility |
+|---|---|
+| Human | State the goal and acceptance intent, resolve escalated semantic or merge conflicts, and optionally approve lifecycle transitions. |
+| Coding agent or harness | Inspect the code, select relevant paths and domains, implement the change, prepare candidate assessments, and invoke Invariant. |
+| Invariant CLI | Retrieve durable context, maintain receipts and coordination state, manage isolated Git work, verify the exact candidate, and land it under repository policy. |
+
+The human does not need to inspect repository internals, choose domains or paths, author assessment
+files, or manage branches. Those are agent and Invariant responsibilities.
+
+### Use with a coding agent
+
+Activate Invariant once in the repository's persistent agent instructions. The portable policy
+block in [AGENTS.example.md](AGENTS.example.md) can live in `AGENTS.md` for Codex, `CLAUDE.md` for
+Claude Code, or the equivalent instruction surface for another coding agent or harness. To share one
+copy between Codex and Claude Code, keep it in `AGENTS.md` and add `@AGENTS.md` to `CLAUDE.md`.
+
+The user can then ask for a change normally. The coding agent interprets the goal, invokes the
+`invariant` commands through its shell, implements and commits on the branch Invariant creates,
+prepares the semantic assessment, and asks Invariant to verify and land the result. When Invariant
+needs authority or encounters a real conflict, the agent returns to the human with the decision—not
+with a request to investigate the code manually. No Invariant-specific model plugin is required.
+
+### CLI surface
+
+The CLI exists so every coding harness, CI job, and IDE can use the same local, model-independent
+protocol. Detailed arguments such as paths, domains, interfaces, governance references, and
+candidate assessments are integration fields for those callers; they are not concepts a human is
+expected to memorize or enter during normal development.
+
+Humans may use the small operational surface directly—for example, `invariant config show`,
+`invariant task status <task-id>`, or `invariant task continue <task-id> --apply`. Harnesses should
+use `--format json` for the deeper command contract. Running `invariant` alone does not start an
+assistant; without a coding harness, it remains a deterministic repository and automation tool.
+
 ## Configure Invariant
 
-Invariant works without a configuration file. 
+Invariant works without a configuration file.
 
 Its effective defaults are:
 
@@ -65,7 +108,7 @@ Settings:
 
 | Setting | Default | Values | What it controls |
 |---|---|---|---|
-| `version` | `1` | `1` | Configuration schema version. It is fixed, not a runtime setting. |
+| `version` | `1` | `1` | Configuration schema version. It is fixed and not user-configurable. |
 | `resolution` | `assisted` | `assisted`, `auto` | Whether consequential semantic ambiguity needs a human or may be settled by an agent acting within accepted authority. |
 | `execution` | `auto` | `auto`, `assisted` | Whether state-changing lifecycle transitions run immediately or pause for explicit continuation. |
 | `integration_branch` | current branch | local branch name | The branch that receives verified landings. `config init` persists the current branch name. |
@@ -84,122 +127,25 @@ invariant config set push_remote on
 invariant config set lifecycle.intent_expansion on
 ```
 
-`push_remote` is a separate publication policy. It defaults to `off`. When accepted configuration
-sets it to `on`, a successful landing pushes the exact verified commit only to the integration
-branch's existing Git upstream; Invariant never chooses or configures a remote. A missing upstream
-blocks before local landing. If the remote rejects a push after landing, the verified local commit
-is retained and reported. Enabling takes effect only after that configuration reaches the
-integration branch, while disabling takes effect on the candidate that disables it.
+## Establish architectural intent
 
-The generated `.invariant/config.yml` is tracked repository policy. Review and commit updates
-through the same managed workflow as other repository changes.
+Invariant does not require a complete model up front: start with a full audit, then let normal work
+deepen it progressively.
 
-## Use Invariant
+### Start with a full audit (recommended)
 
-Invariant is not a coding agent and does not connect to a model. Running `invariant` does not start
-an interactive assistant: the executable is a deterministic repository tool that a person, script,
-CI job, or coding agent invokes. The caller supplies semantic decisions and implementation;
-Invariant supplies context retrieval, lifecycle state, exact-candidate verification, and Git
-landing mechanics. Use `invariant --help` to inspect its command surface.
+Ask your coding agent to audit the repository with Invariant. The agent identifies responsibilities,
+boundaries, dependencies, and executable promises, then proposes the domains, architecture
+references, and contracts that should govern future work. The human resolves those proposals;
+accepted changes establish the repository's durable semantic layer.
 
-| Usage | Who reasons and implements | Who invokes Invariant | Model connection |
-|---|---|---|---|
-| Coding agent or harness | The agent, with human input when needed | The agent or harness invokes CLI commands | Supplied by the coding harness, not Invariant |
-| Direct shell or automation | A person or purpose-built script | The person, script, or CI job invokes CLI commands | None |
+### Continue with progressive discovery
 
-### Through a coding agent or harness
-
-Activate Invariant once in the repository's persistent agent instructions. The portable policy
-block in [AGENTS.example.md](AGENTS.example.md) can live in `AGENTS.md` for Codex, `CLAUDE.md` for
-Claude Code, or the equivalent instruction surface for another coding agent or harness. To share one
-copy between Codex and Claude Code, keep it in `AGENTS.md` and add `@AGENTS.md` to `CLAUDE.md`.
-
-The user can then ask for a change normally. The coding agent interprets the goal, invokes the
-`invariant` commands through its shell, implements and commits on the branch Invariant creates,
-prepares the semantic assessment, and asks Invariant to verify and land the result. No model is
-embedded in the CLI, and no Invariant-specific model integration or plugin is required.
-
-### Directly from the shell
-
-A person or script can drive the same lifecycle without a model. In this mode, the caller performs
-the interpretation, implementation, and review that a coding agent would otherwise perform.
-
-Begin a task with the goal and currently known scope:
-
-```bash
-invariant task begin retry-recovery \
-  --goal "Recover interrupted document-processing jobs" \
-  --posture local \
-  --boundary no-record \
-  --path src/processing
-```
-
-Invariant creates and checks out an isolated work branch. Make and commit the change there, then
-write the assessment consumed by verification:
-
-```yaml
-version: 1
-goal_digest: <digest returned by task begin>
-paths: [src/processing]
-interfaces: []
-domains: []
-boundary:
-  disposition: no-record
-governance: []
-architecture_reviews: []
-checks: []
-```
-
-Finish the task with that file:
-
-```bash
-invariant task finish retry-recovery --assessment /tmp/retry-recovery.yml
-```
-
-Invariant reconstructs the prospective integration tree, recomputes architectural reach, runs the
-applicable reviews and checks, and atomically lands the verified candidate. The direct CLI is
-therefore useful for human-operated workflows and automation, but it does not replace the coding
-agent itself.
-
-## Discover an existing repository
-
-Invariant does not require a complete architecture model up front. It supports two ways to learn an
-existing codebase.
-
-### Progressive by default
-
-Begin with real work and inspect outward only while new evidence could change the implementation,
-architectural judgment, or verification. This is the normal mode for feature work, maintenance,
-unfamiliar code paths, and gradual adoption.
-
-When work exposes an implicit decision, contradiction, undocumented dependency, or meaningful
-absence, capture it as a discovery:
-
-```bash
-invariant evidence discovery capture missing-recovery-record \
-  --observation "No document explains ownership after process restart." \
-  --searched docs \
-  --searched src/jobs \
-  --path src/jobs
-```
-
-A discovery is evidence, not authority. Invariant does not automatically rewrite architecture from
-a finding. Resolution can guide the smallest appropriate change to an existing domain,
-architecture section, contract, implementation, test, documentation, follow-up task, or no artifact
-at all. Only a normally reviewed, verified, and landed change becomes durable repository intent.
-
-### Optional full audit
-
-A full audit is an explicit broader investigation of the repository or a selected subsystem. It is
-useful when introducing Invariant to an established repository, preparing a large migration, or
-examining unclear ownership and risky integration boundaries.
-
-```bash
-invariant evidence audit full
-```
-
-An audit records what was inspected and what was found. Like a progressive discovery, it does not
-manufacture architecture; its findings remain evidence until intentionally resolved.
+During normal work, the agent inspects outward from the goal and surfaces missing, contradictory, or
+outdated intent. In assisted mode, the human decides whether each finding should be preserved or
+resolved; in auto mode, accepted repository policy allows the agent to proceed when sufficient
+authority already exists. Unresolved discoveries remain evidence, while accepted resolutions can
+update architecture, contracts, code, tests, or no artifact at all.
 
 ## Files and terms
 
