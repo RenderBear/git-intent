@@ -24,7 +24,13 @@ class Blocked(InvariantError):
         super().__init__(message, exit_code=1, code=code, lines=lines)
 
 
+class RemotePushFailed(Blocked):
+    """A remote push failed after the verified local landing completed."""
+
+    def __init__(self, message: str, *, lines: list[str]) -> None:
+        super().__init__(message, code="remote_push_failed", lines=lines)
+
+
 class UsageError(InvariantError):
     def __init__(self, message: str) -> None:
         super().__init__(message, exit_code=2, code="invalid_invocation")
-

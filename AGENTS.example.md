@@ -38,7 +38,13 @@ architecture, governance, implementation, documentation, tests, follow-up work, 
 
 `resolution: assisted | auto` controls who resolves semantic ambiguity. `execution: auto | assisted`
 controls lifecycle pauses; both preserve the same stages and checks. Neither setting authorizes
-push, deployment, publication, destructive cleanup, or other external effects.
+deployment, artifact publication, destructive cleanup, or other external effects.
+
+Remote Git publication is a separate repository policy. It defaults to `push_remote: off`. When the
+accepted configuration and the verified candidate both keep it `on`, a successful landing pushes
+the exact landed commit only to the integration branch's existing upstream. Never choose or
+configure an upstream automatically, and never run `git push` outside Invariant's landing flow. If
+the remote rejects the update, preserve and report the completed local landing.
 
 Repositories may independently enable `lifecycle.intent_expansion` and
 `lifecycle.outcome_review`. Expansion adds stable task-local outcome, acceptance, and constraint IDs

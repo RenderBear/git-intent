@@ -3,10 +3,24 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 from invariant.errors import InvariantError
 from invariant.mechanics import git
-from invariant.mechanics.documents import load_yaml
+from invariant.mechanics.documents import dump_yaml, load_yaml
+
+
+CONFIG_PATH = Path(".invariant/config.yml")
+SETTABLE_KEYS = {
+    "resolution",
+    "execution",
+    "integration_branch",
+    "push_remote",
+    "lifecycle.intent_expansion",
+    "lifecycle.outcome_review",
+}
 
 
 @dataclass(frozen=True)
@@ -20,6 +34,7 @@ class Config:
     resolution: str
     execution: str
     integration_branch: str
+    push_remote: str
     source: str
     branch_source: str
     unborn: bool
@@ -39,17 +54,17 @@ def _current(repo: Path) -> tuple[str, str]:
     return branch, "current"
 
 
-def resolve(repo: Path) -> Config:
-    config_path = repo / ".invariant" / "config.yml"
-    if not config_path.exists():
-        branch, branch_source = _current(repo)
-        return _finish(repo, "assisted", "auto", branch, "default", branch_source, LifecycleOptions())
-    if not config_path.is_file():
-        raise InvariantError("Invariant: .invariant/config.yml is not a regular file")
-    raw = load_yaml(config_path)
+def _from_raw(
+    repo: Path,
+    raw: Any,
+    *,
+    source: str,
+    fallback_branch: str,
+    fallback_source: str,
+) -> Config:
     if not isinstance(raw, dict) or raw.get("version") != 1:
         raise InvariantError("Invariant: .invariant/config.yml must declare version: 1")
-    allowed = {"version", "resolution", "execution", "integration_branch", "lifecycle"}
+    allowed = {"version", "resolution", "execution", "integration_branch", "push_remote", "lifecycle"}
     unknown = sorted(set(raw) - allowed)
     if unknown:
         raise InvariantError(f"Invariant: .invariant/config.yml has unknown field '{unknown[0]}'")
@@ -62,6 +77,12 @@ def resolve(repo: Path) -> Config:
     if execution not in {"auto", "assisted"}:
         raise InvariantError(
             f"Invariant: .invariant/config.yml has invalid execution '{execution}' (use auto or assisted)"
+        )
+    push_value = raw.get("push_remote", "off")
+    push_remote = ("on" if push_value else "off") if isinstance(push_value, bool) else push_value
+    if push_remote not in {"on", "off"}:
+        raise InvariantError(
+            f"Invariant: .invariant/config.yml has invalid push_remote '{push_remote}' (use on or off)"
         )
     lifecycle_raw = raw.get("lifecycle", {})
     if not isinstance(lifecycle_raw, dict):
@@ -80,11 +101,148 @@ def resolve(repo: Path) -> Config:
     configured = raw.get("integration_branch")
     if configured is not None and (not isinstance(configured, str) or not configured):
         raise InvariantError("Invariant: integration_branch must be a non-empty branch name")
-    if configured:
-        branch, branch_source = configured, "config"
-    else:
+    branch = configured or fallback_branch
+    branch_source = "config" if configured else fallback_source
+    return _finish(
+        repo,
+        resolution,
+        execution,
+        branch,
+        push_remote,
+        source,
+        branch_source,
+        lifecycle,
+    )
+
+
+def resolve(repo: Path) -> Config:
+    config_path = repo / CONFIG_PATH
+    if not config_path.exists():
         branch, branch_source = _current(repo)
-    return _finish(repo, resolution, execution, branch, ".invariant/config.yml", branch_source, lifecycle)
+        return _finish(
+            repo,
+            "assisted",
+            "auto",
+            branch,
+            "off",
+            "default",
+            branch_source,
+            LifecycleOptions(),
+        )
+    if not config_path.is_file():
+        raise InvariantError("Invariant: .invariant/config.yml is not a regular file")
+    raw = load_yaml(config_path)
+    branch, branch_source = _current(repo)
+    return _from_raw(
+        repo,
+        raw,
+        source=CONFIG_PATH.as_posix(),
+        fallback_branch=branch,
+        fallback_source=branch_source,
+    )
+
+
+def resolve_at(repo: Path, ref: str, integration_branch: str) -> Config:
+    if not git.resolve(repo, ref):
+        raise InvariantError(f"Invariant: configuration ground '{ref}' does not resolve")
+    result = git.run(["show", f"{ref}:{CONFIG_PATH.as_posix()}"], cwd=repo, check=False)
+    if result.returncode:
+        return _finish(
+            repo,
+            "assisted",
+            "auto",
+            integration_branch,
+            "off",
+            "default",
+            "accepted",
+            LifecycleOptions(),
+        )
+    try:
+        raw = yaml.safe_load(result.stdout)
+    except yaml.YAMLError as exc:
+        raise InvariantError(
+            f"Invariant: invalid YAML in {CONFIG_PATH.as_posix()} at {ref}: {exc}",
+            code="invalid_yaml",
+        ) from exc
+    return _from_raw(
+        repo,
+        raw,
+        source=f"{CONFIG_PATH.as_posix()} at {ref}",
+        fallback_branch=integration_branch,
+        fallback_source="accepted",
+    )
+
+
+def _document(config: Config) -> dict[str, Any]:
+    return {
+        "version": 1,
+        "resolution": config.resolution,
+        "execution": config.execution,
+        "integration_branch": config.integration_branch,
+        "push_remote": config.push_remote,
+        "lifecycle": {
+            "intent_expansion": config.lifecycle.intent_expansion,
+            "outcome_review": config.lifecycle.outcome_review,
+        },
+    }
+
+
+def initialize(repo: Path) -> list[str]:
+    path = repo / CONFIG_PATH
+    if path.exists():
+        raise InvariantError(f"Invariant: {CONFIG_PATH.as_posix()} already exists", code="config_exists")
+    resolved = resolve(repo)
+    dump_yaml(path, _document(resolved))
+    return [f"CONFIG: created {CONFIG_PATH.as_posix()}", *lines(resolve(repo))]
+
+
+def set_value(repo: Path, key: str, value: str) -> list[str]:
+    if key not in SETTABLE_KEYS:
+        raise InvariantError(f"Invariant: configuration key '{key}' is not settable", code="invalid_config_key")
+    path = repo / CONFIG_PATH
+    if path.exists():
+        current = resolve(repo)
+        raw = load_yaml(path)
+        if not isinstance(raw, dict):
+            raise InvariantError("Invariant: .invariant/config.yml must contain a mapping")
+        document = dict(raw)
+    else:
+        current = resolve(repo)
+        document = _document(current)
+
+    if key in {"resolution", "execution"}:
+        choices = {"resolution": {"assisted", "auto"}, "execution": {"auto", "assisted"}}
+        if value not in choices[key]:
+            expected = " or ".join(sorted(choices[key]))
+            raise InvariantError(f"Invariant: {key} must be {expected}", code="invalid_config_value")
+        document[key] = value
+    elif key == "integration_branch":
+        if git.run(["check-ref-format", "--branch", value], cwd=repo, check=False).returncode:
+            raise InvariantError(f"Invariant: invalid integration branch '{value}'", code="invalid_config_value")
+        document[key] = value
+    elif key == "push_remote":
+        if value not in {"on", "off"}:
+            raise InvariantError("Invariant: push_remote must be on or off", code="invalid_config_value")
+        document[key] = value
+    else:
+        if value not in {"on", "off"}:
+            raise InvariantError(f"Invariant: {key} must be on or off", code="invalid_config_value")
+        lifecycle = document.get("lifecycle", {})
+        if not isinstance(lifecycle, dict):
+            raise InvariantError("Invariant: .invariant/config.yml lifecycle must be a mapping")
+        lifecycle = dict(lifecycle)
+        lifecycle[key.removeprefix("lifecycle.")] = value == "on"
+        document["lifecycle"] = lifecycle
+
+    _from_raw(
+        repo,
+        document,
+        source=CONFIG_PATH.as_posix(),
+        fallback_branch=current.integration_branch,
+        fallback_source=current.branch_source,
+    )
+    dump_yaml(path, document)
+    return [f"CONFIG: set {key}={value}", *lines(resolve(repo))]
 
 
 def _finish(
@@ -92,6 +250,7 @@ def _finish(
     resolution: str,
     execution: str,
     branch: str,
+    push_remote: str,
     source: str,
     branch_source: str,
     lifecycle: LifecycleOptions,
@@ -107,14 +266,16 @@ def _finish(
         )
         if not allowed_unborn:
             raise InvariantError(f"Invariant: configured integration branch '{branch}' does not exist locally")
-    return Config(resolution, execution, branch, source, branch_source, unborn, lifecycle)
+    return Config(resolution, execution, branch, push_remote, source, branch_source, unborn, lifecycle)
 
 
 def lines(config: Config) -> list[str]:
     output = [
+        "version: 1",
         f"resolution: {config.resolution}",
         f"execution: {config.execution}",
         f"integration_branch: {config.integration_branch}",
+        f"push_remote: {config.push_remote}",
         f"source: {config.source}",
         f"integration_branch_resolved: {config.integration_branch}",
         f"branch_source: {config.branch_source}",
@@ -124,4 +285,3 @@ def lines(config: Config) -> list[str]:
     if config.unborn:
         output.append("integration_branch_unborn: true")
     return output
-

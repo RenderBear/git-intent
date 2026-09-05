@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Iterable
 
-from invariant.errors import Blocked, InvariantError
+from invariant.errors import Blocked, InvariantError, RemotePushFailed
 from invariant.mechanics import config, git, governance, landing, receipts
 from invariant.mechanics.documents import dump_yaml, load_yaml
 from invariant.semantics import guidance
@@ -324,6 +324,26 @@ def _validate_outcome_review(receipt: dict[str, object], assessment: Assessment,
         )
 
 
+def _complete_task(repo: Path, task: str, active_stage: str, branch: str, target: str) -> None:
+    if active_stage == "implementing":
+        current = git.current_branch(repo)
+        if current == branch:
+            git.run(["switch", "-q", target], cwd=repo)
+        if git.worktree_for_branch(repo, branch) is None:
+            deleted = git.run(["branch", "-d", branch], cwd=repo, check=False)
+            if deleted.returncode:
+                receipts.set_lifecycle(repo, task, "cleanup-required", branch, str(repo))
+                raise Blocked(
+                    f"Invariant: landed successfully but could not remove task branch '{branch}'"
+                )
+        else:
+            receipts.set_lifecycle(repo, task, "cleanup-required", branch, str(repo))
+            raise Blocked(
+                f"Invariant: landed successfully but task branch '{branch}' remains checked out"
+            )
+    receipts.invalidate(repo, task)
+
+
 def finish(
     repo: Path,
     task: str,
@@ -436,24 +456,13 @@ def finish(
                 f"NEXT: invariant task continue {task} --apply",
             ],
         )
-    output = landing.verify_and_land(repo, request)
-    if active_stage == "implementing":
-        current = git.current_branch(repo)
-        if current == branch:
-            git.run(["switch", "-q", target], cwd=repo)
-        if git.worktree_for_branch(repo, branch) is None:
-            deleted = git.run(["branch", "-d", branch], cwd=repo, check=False)
-            if deleted.returncode:
-                receipts.set_lifecycle(repo, task, "cleanup-required", branch, str(repo))
-                raise Blocked(
-                    f"Invariant: landed successfully but could not remove task branch '{branch}'"
-                )
-        else:
-            receipts.set_lifecycle(repo, task, "cleanup-required", branch, str(repo))
-            raise Blocked(
-                f"Invariant: landed successfully but task branch '{branch}' remains checked out"
-            )
-    receipts.invalidate(repo, task)
+    try:
+        output = landing.verify_and_land(repo, request)
+    except RemotePushFailed as exc:
+        _complete_task(repo, task, active_stage, branch, target)
+        exc.lines.extend([f"TASK: {task}", "STATUS: completed-locally"])
+        raise
+    _complete_task(repo, task, active_stage, branch, target)
     return [*output, f"TASK: {task}", "STATUS: completed"]
 
 

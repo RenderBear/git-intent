@@ -5,7 +5,7 @@ import sys
 from collections.abc import Callable
 
 from invariant import __version__
-from invariant.cli.commands import candidate, context, coordinate, evidence, state, task
+from invariant.cli.commands import candidate, configuration, context, coordinate, evidence, state, task
 from invariant.cli.output import emit_error, emit_success
 from invariant.errors import InvariantError, UsageError
 
@@ -20,6 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--format", choices=["text", "json"], default="text")
     parser.add_argument("--version", action="version", version=f"invariant {__version__}")
     subparsers = parser.add_subparsers(dest="group", required=True, parser_class=Parser)
+    configuration.register(subparsers)
     task.register(subparsers)
     state.register(subparsers)
     context.register(subparsers)

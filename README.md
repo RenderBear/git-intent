@@ -16,11 +16,11 @@ It connects four concerns that otherwise drift apart:
 Durable intent is the semantic counterpart to temporal coordination: architecture and contracts
 remain after the work ends; plans, claims, and leases do not.
 
-![A Git-grounded lifecycle carries a user goal through coordination, execution, verification, conflict resolution by an agent or human, and local landing. A durable semantic layer maps domains to architecture files and contracts to contract files and checks.](.github/assets/lifecycle.svg)
+![A Git-grounded lifecycle carries a user goal through coordination, execution, verification, conflict resolution by an agent or human, and local landing. A durable semantic layer maps domains to architecture files and contracts to contract files.](.github/assets/lifecycle.svg)
 
-Invariant is a standalone Python CLI. Codex, another coding agent, CI, or a person can invoke the
-same local command contract. It verifies the exact candidate that will be integrated, advances the
-local integration branch only on success, and never pushes.
+Invariant is a standalone Python CLI. Any coding agent, CI job, IDE, harness, or person can invoke
+the same local command contract. It advances the local integration branch only after exact-candidate
+verification succeeds and keeps remote publication disabled by default.
 
 The complete design is in [SPEC.md](SPEC.md).
 
@@ -44,90 +44,55 @@ Confirm the installation:
 invariant --version
 ```
 
-## Develop with Invariant
+## Configure Invariant
 
-Ask Codex or another coding agent to use Invariant for a repository change. The agent identifies the
-relevant paths and any existing domains, reads applicable architecture and contracts, works on an
-isolated branch, verifies the resulting candidate, and lands it locally when every requirement
-passes.
-
-```text
-You:
-Add retry recovery to document processing. Use Invariant.
-
-Codex:
-1. Opens the task against the relevant paths and any applicable domains.
-2. Reads the architecture, contracts, and discoveries that could affect the change.
-3. Implements and commits the change on an isolated work branch.
-4. Reviews the exact candidate and runs affected checks.
-5. Lands the change locally when every requirement passes.
-```
-
-Codex does not need a custom integration or plugin. A consuming repository can copy
-[AGENTS.example.md](AGENTS.example.md) into its always-loaded agent instructions to make this the
-default development workflow.
-
-## A complete task
-
-Start with the user-visible goal and the paths currently known to be relevant:
-
-```bash
-invariant task begin retry-recovery \
-  --goal "Recover interrupted document-processing jobs" \
-```
-
-Before finishing, describe the candidate in an assessment:
+Invariant works without a configuration file. Its effective defaults are:
 
 ```yaml
 version: 1
-goal_digest: <digest returned by task begin>
-paths: [src/processing]
-interfaces: []
-domains: []
-boundary:
-  disposition: no-record
-governance: []
-architecture_reviews: []
-checks: []
+resolution: assisted
+execution: auto
+integration_branch: <current branch>
+push_remote: off
+lifecycle:
+  intent_expansion: false
+  outcome_review: false
 ```
 
-Then finish the task:
+Inspect the resolved values, persist them, or update one setting at a time:
 
 ```bash
-invariant task finish retry-recovery --assessment /tmp/retry-recovery.yml
+invariant config show
+invariant config init
+invariant config set execution assisted
+invariant config set integration_branch main
+invariant config set push_remote on
+invariant config set lifecycle.intent_expansion on
 ```
 
-Invariant reconstructs the prospective integration tree, recomputes its architectural reach, runs
-the affected checks and reviews against that exact tree, and atomically advances the local
-integration branch. If review or verification fails, the integration branch is untouched and the
-work branch remains recoverable.
+`version` identifies the configuration schema and is not a runtime setting. `resolution` chooses
+whether consequential semantic ambiguity is resolved with a human (`assisted`) or may be resolved
+by an agent within accepted authority (`auto`). `execution` controls routine lifecycle pauses.
+`integration_branch` is the local convergence target. The lifecycle switches add optional upfront
+intent expansion and exact-candidate outcome review.
 
-For applications and agent harnesses, add `--format json` to receive structured output.
+`push_remote` is a separate publication policy. It defaults to `off`. When accepted configuration
+sets it to `on`, a successful landing pushes the exact verified commit only to the integration
+branch's existing Git upstream; Invariant never chooses or configures a remote. A missing upstream
+blocks before local landing. If the remote rejects a push after landing, the verified local commit
+is retained and reported. Enabling takes effect only after that configuration reaches the
+integration branch, while disabling takes effect on the candidate that disables it.
 
-## Optional intent clarification
+The generated `.invariant/config.yml` is tracked repository policy. Review and commit updates
+through the same managed workflow as other repository changes.
 
-Most tasks can begin from the user's prose. When a request needs sharper task-level agreement,
-Invariant can preserve an expanded intent document containing outcomes, acceptance criteria, and
-constraints before implementation. An optional outcome review then evaluates those acceptance IDs
-against the exact candidate tree.
+## Use Invariant
 
-```yaml
-version: 1
-goal: Recover active jobs when the application restarts.
-outcomes:
-  - id: O1
-    prose: Non-terminal jobs are visible after restart.
-acceptance:
-  - id: A1
-    prose: Each non-terminal job is restored exactly once.
-constraints:
-  - id: C1
-    prose: Session-only events are not restored.
-```
+Activate Invariant once in the repository's persistent agent instructions. The portable policy
+block in [AGENTS.example.md](AGENTS.example.md) can live in `AGENTS.md` for Codex, `CLAUDE.md` for
+Claude Code, or the equivalent instruction surface for another coding agent or harness. To share one
+copy between Codex and Claude Code, keep it in `AGENTS.md` and add `@AGENTS.md` to `CLAUDE.md`.
 
-Pass the document to `task begin --intent <file>`. Enable outcome review with
-`--outcome-review`. Expanded task intent guides one change; it is not permanent repository
-architecture.
 
 ## Discover an existing repository
 

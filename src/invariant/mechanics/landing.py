@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
-from invariant.errors import Blocked, InvariantError
+from invariant.errors import Blocked, InvariantError, RemotePushFailed
 from invariant.mechanics import audit, config, coordinate, git, governance, state
 
 
@@ -39,6 +39,16 @@ class Candidate:
     unborn: bool
     covers: str | None
     reach_base: str | None
+
+
+@dataclass(frozen=True)
+class PushTarget:
+    remote: str
+    merge_ref: str
+
+    @property
+    def label(self) -> str:
+        return f"{self.remote}/{self.merge_ref.removeprefix('refs/heads/')}"
 
 
 def _validate_request(request: LandRequest) -> None:
@@ -194,6 +204,74 @@ def _construct(repo: Path, request: LandRequest, target: str) -> Candidate:
             input_text=message,
         ).stdout
     return Candidate(candidate, tree, target, old, unborn, covers, reach_base)
+
+
+def _remote_push_enabled(repo: Path, candidate: Candidate) -> bool:
+    """Require accepted and proposed policy to opt in for this integration target."""
+    if not candidate.old:
+        return False
+    accepted = config.resolve_at(repo, candidate.old, candidate.target)
+    proposed = config.resolve_at(repo, candidate.commit, candidate.target)
+    return (
+        accepted.push_remote == "on"
+        and proposed.push_remote == "on"
+        and accepted.integration_branch == candidate.target
+        and proposed.integration_branch == candidate.target
+    )
+
+
+def _remote_push_target(repo: Path, branch: str) -> PushTarget:
+    remote_result = git.run(
+        ["config", "--get", f"branch.{branch}.remote"], cwd=repo, check=False
+    )
+    merge_result = git.run(
+        ["config", "--get", f"branch.{branch}.merge"], cwd=repo, check=False
+    )
+    remote_values = remote_result.stdout.splitlines() if remote_result.returncode == 0 else []
+    merge_values = merge_result.stdout.splitlines() if merge_result.returncode == 0 else []
+    if len(remote_values) != 1 or len(merge_values) != 1 or remote_values[0] == ".":
+        raise Blocked(
+            f"Invariant: push_remote is on but integration branch '{branch}' has no usable upstream",
+            code="remote_upstream_missing",
+            lines=[f"NEXT: configure an upstream for {branch}, or set push_remote off"],
+        )
+    remote = remote_values[0]
+    merge_ref = merge_values[0]
+    remotes = git.run(["remote"], cwd=repo).stdout.splitlines()
+    if remote not in remotes or not merge_ref.startswith("refs/heads/"):
+        raise Blocked(
+            f"Invariant: push_remote is on but integration branch '{branch}' has no usable upstream",
+            code="remote_upstream_missing",
+            lines=[f"NEXT: configure an upstream for {branch}, or set push_remote off"],
+        )
+    if git.run(["check-ref-format", merge_ref], cwd=repo, check=False).returncode:
+        raise Blocked(
+            f"Invariant: upstream for integration branch '{branch}' has an invalid branch ref",
+            code="remote_upstream_invalid",
+        )
+    return PushTarget(remote, merge_ref)
+
+
+def _push_remote(repo: Path, candidate: Candidate, target: PushTarget) -> list[str]:
+    refspec = f"{candidate.commit}:{target.merge_ref}"
+    result = git.run(
+        ["push", "--porcelain", "--", target.remote, refspec], cwd=repo, check=False
+    )
+    if result.returncode:
+        details = [
+            f"REMOTE: {line}"
+            for line in [*result.stdout.splitlines(), *result.stderr.splitlines()]
+            if line
+        ]
+        raise RemotePushFailed(
+            "Invariant: remote push failed after local landing; the local integration commit is retained",
+            lines=[
+                f"PUSH: failed — {candidate.commit} -> {target.label}",
+                *details,
+                f"NEXT: resolve the remote condition; {candidate.commit} remains landed on {candidate.target}",
+            ],
+        )
+    return [f"PUSHED: {candidate.commit} -> {target.label}"]
 
 
 def prospective_tree(repo: Path, target: str, branch: str | None = None) -> str:
@@ -430,6 +508,11 @@ def verify_and_land(repo: Path, request: LandRequest, *, update_ref: bool = True
     if git.run(["check-ref-format", "--branch", target], cwd=repo, check=False).returncode:
         raise InvariantError(f"Invariant: invalid integration branch '{target}'")
     candidate = _construct(repo, request, target)
+    push_target = (
+        _remote_push_target(repo, target)
+        if update_ref and _remote_push_enabled(repo, candidate)
+        else None
+    )
     _checkout_safe(repo, request, candidate)
     temporary = Path(tempfile.mkdtemp(prefix="invariant-land."))
     verify_dir = temporary / "verify"
@@ -555,6 +638,12 @@ def verify_and_land(repo: Path, request: LandRequest, *, update_ref: bool = True
         output.append(
             f"LANDED: {candidate.commit} -> {target} (prospective tree verified before ref update)"
         )
+        if push_target:
+            try:
+                output.extend(_push_remote(repo, candidate, push_target))
+            except RemotePushFailed as exc:
+                exc.lines = [*output, *exc.lines]
+                raise
         return output
     except Blocked as exc:
         if not exc.lines and output:

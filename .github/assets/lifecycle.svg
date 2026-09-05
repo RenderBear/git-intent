@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" role="img" aria-labelledby="title desc">
   <title id="title">Invariant's Git-grounded lifecycle and durable semantic layer</title>
-  <desc id="desc">A user goal moves through work coordination, execution, verification, and local landing. Conflicts return to an agent or human for resolution. Below the lifecycle, domains point to architecture files and contracts point to contract files and checks.</desc>
+  <desc id="desc">A user goal moves through work coordination, execution, verification, and local landing. Conflicts return to an agent or human for resolution. Below the lifecycle, domains point to architecture files and contracts point to contract files.</desc>
 
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto">
@@ -132,7 +132,7 @@
     </g>
     <text x="263" y="393" fill="#d7dde5" font-size="13.5">Architecture files</text>
 
-    <!-- Contracts to contract files and checks -->
+    <!-- Contracts to contract files -->
     <g transform="translate(626 388)" fill="none" stroke="#70cc99" stroke-width="1.6" stroke-linecap="round">
       <path d="M -15 5 C -21 -1, -21 -8, -16 -13 C -11 -18, -4 -18, 2 -12 L 7 -7 M 15 -5 C 21 1, 21 8, 16 13 C 11 18, 4 18, -2 12 L -7 7 M -7 7 L 7 -7"/>
     </g>
@@ -142,6 +142,6 @@
       <path d="M -10 -15 H 5 L 12 -8 V 15 H -10 Z"/>
       <path d="M 5 -15 V -8 H 12 M -5 4 L -1 8 L 7 -2"/>
     </g>
-    <text x="833" y="393" fill="#d7dde5" font-size="13.5">Contract files + checks</text>
+    <text x="833" y="393" fill="#d7dde5" font-size="13.5">Contract files</text>
   </g>
 </svg>

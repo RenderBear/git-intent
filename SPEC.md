@@ -11,8 +11,9 @@ The design separates three concerns:
 3. **Lifecycle** advances work through briefing, isolation, verification, and landing.
 
 The CLI owns mechanics and lifecycle. Humans or models own semantics. The invoking application owns
-the conversation, implementation, and external effects. None of these layers may silently assume
-another layer's authority.
+the conversation and implementation. Explicit repository configuration may authorize one bounded
+external effect—publishing a verified landing to an existing Git upstream—and the host owns every
+other external effect. None of these layers may silently assume another layer's authority.
 
 ## 1. Goals
 
@@ -45,7 +46,8 @@ Invariant does not:
 - decide whether a new promise deserves authority;
 - replace repository tests, code review, or deployment policy;
 - treat cached content as model memory;
-- authorize push, deployment, publication, destructive cleanup, or external side effects.
+- infer or configure a remote destination, deploy, publish artifacts, perform destructive cleanup,
+  or authorize unbounded external side effects.
 
 ## 3. Layer ownership
 
@@ -83,7 +85,8 @@ The `invariant` CLI owns deterministic operations:
 - running checks against an exact tree;
 - validating audit and lease freshness;
 - detecting conflicts and concurrent ref movement;
-- atomically updating a local ref when explicitly requested.
+- atomically updating a local ref when explicitly requested;
+- pushing the exact landed commit to an existing upstream only when tracked policy opts in.
 
 The CLI does not call a model. It does not select semantic domains or infer `no-record`. It validates
 semantic assertions supplied by its caller against mechanical facts.
@@ -100,11 +103,13 @@ The CLI owns the fixed repository lifecycle. It owns:
 - requiring semantic inputs at the points where mechanics cannot decide;
 - running exact-tree verification;
 - atomically landing onto the integration target;
+- optionally publishing that exact landing under explicit tracked policy;
 - releasing associated leases and invalidating the completed receipt.
 
 The host may be a person, shell script, coding agent, CI job, IDE, or custom harness. It owns the
 conversation, performs implementation inside the CLI-provided work context, supplies semantic
-decisions, presents progress and approval requests, and decides what happens after local landing.
+decisions, presents progress and approval requests, and owns every external effect beyond the
+optional configured Git publication step.
 
 The lifecycle is fixed even when execution is automatic. Automation removes routine pauses; it does
 not remove lifecycle stages or checks.
@@ -155,6 +160,7 @@ begin
   -> reach and semantic review
   -> verification
   -> atomic local landing
+  -> optional configured upstream push
   -> receipt and coordination cleanup
 ```
 
@@ -165,7 +171,9 @@ worktree context in which the host performs the requested implementation.
 `invariant task finish` constructs the exact prospective merge tree, recomputes reach, validates the
 current semantic assessment, runs affected checks and reviews, and compare-and-swaps the integration
 ref. If semantic input is missing, it returns the required decision without discarding valid
-mechanical work. If verification or landing fails, the work branch remains recoverable.
+mechanical work. If verification or landing fails, the work branch remains recoverable. When remote
+publication is enabled, it occurs only after local landing; a rejected push leaves that verified
+local landing intact and reports it explicitly.
 
 An unrelated mergeable integration advance may be adopted without restarting semantics. Expanded
 semantic scope, changed governing material, incompatible meaning, or a real conflict returns the
@@ -223,6 +231,7 @@ version: 1
 resolution: assisted
 execution: auto
 integration_branch: main
+push_remote: off
 lifecycle:
   intent_expansion: false
   outcome_review: false
@@ -238,15 +247,33 @@ lifecycle:
 target or the CLI resolves the current branch for that invocation without persisting it as semantic
 state.
 
+`push_remote` is an independent remote-publication policy:
+
+- `off` leaves every successful landing local;
+- `on` pushes the exact landed commit to the configured integration branch's existing upstream.
+
+Remote publication requires both the accepted configuration and the verified candidate to say
+`on`. Enabling therefore takes effect only after the enabling configuration reaches the integration
+branch, while disabling takes effect on the disabling candidate itself. Invariant never chooses or
+configures a remote. A missing or unusable upstream blocks before local landing; a remote rejection
+after local landing reports a blocked publication while retaining the local integration commit.
+
 `execution` controls how the CLI advances its fixed lifecycle:
 
 - `auto` advances every mechanically valid, authorized local transition without a routine pause;
 - `assisted` presents state-changing transitions before applying them and waits for explicit
   continuation.
 
-Absence means `resolution: assisted` and `execution: auto`. Automatic execution is the ergonomic
-default; it does not remove briefing, branch isolation, exact-tree verification, or atomic landing.
-Neither execution mode weakens validation or grants external authority.
+Absence means `resolution: assisted`, `execution: auto`, `push_remote: off`, and the current branch
+as the invocation's integration target. Automatic execution is the ergonomic default; it does not
+remove briefing, branch isolation, exact-tree verification, or atomic landing. Neither execution
+mode weakens validation or grants external authority.
+
+`invariant config show` displays effective values without creating state. `invariant config init`
+materializes every default in `.invariant/config.yml`. `invariant config set <key> <value>` updates
+one validated setting atomically. The settable keys are `resolution`, `execution`,
+`integration_branch`, `push_remote`, `lifecycle.intent_expansion`, and
+`lifecycle.outcome_review`. Version `1` is the configuration schema marker, not a runtime setting.
 
 The two `lifecycle` switches are optional semantic bookends. `intent_expansion` requires stable
 task-local outcome, acceptance, and constraint IDs before implementation. `outcome_review` requires
@@ -361,6 +388,9 @@ Interactive presentation belongs to the host.
 Initial command groups are:
 
 ```text
+invariant config show
+invariant config init
+invariant config set <key> <value>
 invariant task begin <task-id> --goal <text> [semantic scope...]
 invariant task status <task-id>
 invariant task check <task-id> [semantic scope...]
@@ -505,9 +535,11 @@ Landing repeats or consumes verification only when the evidence exactly matches 
 CLI mechanics version, verifier identities, and relevant governance versions. It then:
 
 1. confirms the target still equals the captured head;
-2. confirms the target worktree can be synchronized safely;
-3. applies the requested local ref update atomically;
-4. releases explicitly associated leases only after success.
+2. resolves an already-configured upstream before mutation when remote publication is enabled;
+3. confirms the target worktree can be synchronized safely;
+4. applies the requested local ref update atomically;
+5. releases explicitly associated leases only after success;
+6. pushes the exact landed commit to that upstream when enabled.
 
 Any conflict, failed check, changed candidate, missing review, stale assessment, or concurrent target
 advance leaves the target unchanged.
@@ -634,7 +666,7 @@ With automatic execution, the CLI:
 4. resumes at `task finish` and advances through candidate construction, verification, and local
    landing without routine confirmations;
 5. stops only for missing semantic authority, failed checks, conflict, concurrent movement, or
-   external effects.
+   unauthorized external effects.
 
 ### 14.2 Assisted execution
 
@@ -677,8 +709,12 @@ distributed as the application and cannot be imported by the mechanics or lifecy
 
 - Read-only inspection needs no special authority.
 - Explicit CLI mutation affects only targets named by the invocation.
-- The CLI does not push or interact with remotes unless a future command is separately designed and
-  authorized; no such command exists in version 1.
+- Remote publication defaults to off and requires accepted tracked configuration to opt in.
+- The CLI never creates, selects, or changes a remote or upstream.
+- An enabled push targets only the integration branch's existing upstream and names the exact
+  verified commit as its source.
+- Missing upstream configuration blocks before local landing. A remote rejection occurs after local
+  landing and cannot roll that verified commit back.
 - Ref updates use compare-and-swap against a captured old value.
 - Untracked files that would be overwritten block synchronization.
 - Failed verification never advances a ref.
@@ -734,7 +770,8 @@ The first CLI release is complete when:
   unnecessary semantic or confirmation ceremony;
 - a Codex task can use the CLI through shell execution without a custom Codex integration;
 - another application can consume the same behavior through JSON without parsing prose;
-- no command pushes to a remote.
+- remote publication remains off by default and can target only the configured integration branch's
+  existing upstream after verified local landing.
 
 The governing design rule is:
 

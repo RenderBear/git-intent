@@ -72,9 +72,13 @@ def _exact(positionals: list[str], count: int, usage: str) -> None:
 def _config(_: list[str]) -> list[str]:
     resolved = config.resolve(git.root())
     # Preserve the legacy resolver's stable six-line contract. The public CLI
-    # exposes the two optional lifecycle switches as well.
+    # exposes the schema version, remote policy, and lifecycle switches as well.
     lines = config.lines(resolved)
-    return [line for line in lines if not line.startswith(("intent_expansion:", "outcome_review:"))]
+    return [
+        line
+        for line in lines
+        if not line.startswith(("version:", "push_remote:", "intent_expansion:", "outcome_review:"))
+    ]
 
 
 def _state(argv: list[str]) -> list[str]:

@@ -36,6 +36,7 @@ version: 1
 resolution: auto
 execution: assisted
 integration_branch: trunk
+push_remote: off
 EOF
 
 explicit=$(cd "$fixture" && sh "$resolver")
@@ -77,6 +78,15 @@ fi
 
 cat >"$fixture/.invariant/config.yml" <<EOF
 version: 1
+push_remote: maybe
+EOF
+if (cd "$fixture" && sh "$resolver" >/dev/null 2>&1); then
+  echo "not ok - invalid push_remote value was accepted"
+  exit 1
+fi
+
+cat >"$fixture/.invariant/config.yml" <<EOF
+version: 1
 workers: subagent
 EOF
 if (cd "$fixture" && sh "$resolver" >/dev/null 2>&1); then
@@ -104,4 +114,4 @@ captured=$(cd "$fixture" && GIT_INTENT_INTEGRATION_TARGET=trunk sh "$resolver")
 printf '%s\n' "$captured" | grep -q '^integration_branch: trunk$'
 printf '%s\n' "$captured" | grep -q '^branch_source: captured$'
 
-echo "10 config resolution checks passed"
+echo "11 config resolution checks passed"
